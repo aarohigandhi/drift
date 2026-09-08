@@ -1,0 +1,21 @@
+# Generated oracle tables. Rebuilt by `./gradlew dumpTables`; tens of megabytes of
+# CSV that is fully determined by the code, so there is no reason to store it.
+results/oracle/
+
+# Java
+java/build/
+java/.gradle/
+*.class
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
