@@ -49,19 +49,65 @@ number is negative zero, every one of these formats spends a bit pattern on it, 
 a `Fraction` has no way to hold it. The Java side was right and the reference was
 wrong. Fixed by giving the reference an explicit negative zero.
 
+## The kernel
+
+Built. `NumericPolicy` holds every arithmetic decision as a field — input format,
+input rounding, scaling policy, accumulator width, summation order, block size,
+accumulator rounding — and `Dot` runs an inner product under it. Products stay
+exact, as they do in hardware, so the only rounding in a dot product is the
+accumulation.
+
+MX block scales are exact powers of two, so `scale * element` is exact and a
+block-scaled tensor can be stored dequantised without changing a single product.
+Per-tensor scales are arbitrary floats and cannot, so their multiply-back is itself
+a rounding and is part of what the policy is measured on.
+
+`OrderDemo`, one dot product over 4,096 terms, is the first thing the kernel has
+said. **None of this is a result yet** — it is one vector pair at one seed, and it
+exists to check the instrument responds at all.
+
+Holding the format at bf16 and varying only the summation:
+
+| accumulator and order | relative error |
+|---|---:|
+| fp32 sequential | 2.704e-03 |
+| fp32 reversed | 2.705e-03 |
+| fp32 pairwise | 2.705e-03 |
+| fp32 blocked, k=32 | 2.705e-03 |
+| fp16 sequential | 9.085e-03 |
+| fp16 pairwise | 3.424e-03 |
+| bf16 sequential | 1.037e-02 |
+| bf16 pairwise | 1.037e-02 |
+
+Two things to chase, both of which have to be settled before any of this is
+reported as anything:
+
+- **At fp32 the order does not matter and the input cast dominates.** It only
+  starts to matter once the accumulator is narrow — fp16 sequential against fp16
+  pairwise is a factor of 2.7 from the order alone. That is a real and useful shape
+  if it holds up, and it is the opposite of what the project was set up expecting.
+- **bf16 sequential and bf16 pairwise agree to four digits**, where fp16 showed a
+  large gap. Suspicious. Either the bf16 error saturates for a reason worth naming
+  or there is a bug.
+
+And one from the scaling table: with e4m3 inputs, MX per-block came out *worse*
+than per-tensor (1.697e-01 against 3.240e-02). The likely cause is that the OCP
+shared exponent is `floor(log2(amax)) - emax_elem`, which maps a block maximum into
+`[256, 512)` while e4m3 stops at 448, so the top of every block clamps. If that is
+it, it is a real property of the spec and worth showing. If it is not, it is a bug.
+Not yet checked either way.
+
+Also worth stating so it is not misread later: stochastic rounding is *worse* on a
+single dot product than nearest-even, by a lot. That is expected. Its argument is
+unbiasedness across many accumulation steps, which a one-shot inner product cannot
+show and only the training loop can.
+
 ## Next
 
-1. **The kernel.** A dot product whose accumulator is an independent variable:
-   width (fp64 / fp32 / fp16 / bf16), order (sequential, reversed, pairwise,
-   blocked in chunks of k, which is what a tensor core actually does), and rounding
-   mode. Products stay exact, as they do in hardware — only the accumulation
-   rounds. Plus the scaling policies: none, per-tensor current, per-tensor delayed
-   with an amax history, and MX per-block with an E8M0 scale.
-
-   One thing already settled: MX block scales are exact powers of two, so
-   `scale * element` is exact and a block-scaled tensor can be stored dequantized
-   without changing a single product. Per-tensor scales are arbitrary floats and
-   cannot.
+1. **Settle the three open questions above** before building anything on top of the
+   kernel: the bf16 accumulator agreeing with itself, the MX-versus-per-tensor
+   result, and whether the order effect at narrow accumulators survives more than
+   one seed. A sweep over seeds and lengths, not one vector pair.
 
 2. **A small transformer in Java**, trained on real text, with every matmul routed
    through the policy above.
