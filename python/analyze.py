@@ -80,12 +80,15 @@ def dot_sweep():
     ax.annotate("fp32 sequential", (ns[-1], ref[-1]), xytext=(8, 0), textcoords="offset points",
                 color=INK_2, fontsize=9, va="center")
     series = ["fp16 sequential", "fp16 pairwise", "bf16 sequential", "bf16 pairwise"]
+    # fp16 sequential and bf16 pairwise end within a few percent of each other, so
+    # their end labels are pushed apart rather than drawn on top of one another.
+    nudge = {"fp16 sequential": 6, "bf16 pairwise": -6}
     for i, label in enumerate(series):
         ys = [statistics.median(med[("accumulation", label, n)]) for n in ns]
         ax.plot(ns, ys, color=SERIES[i], linewidth=2, linestyle=STYLES[i], marker="o",
                 markersize=5, label=label)
-        ax.annotate(label, (ns[-1], ys[-1]), xytext=(8, 0), textcoords="offset points",
-                    color=INK_2, fontsize=9, va="center")
+        ax.annotate(label, (ns[-1], ys[-1]), xytext=(8, nudge.get(label, 0)),
+                    textcoords="offset points", color=INK_2, fontsize=9, va="center")
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
     ax.set_xticks(ns)
@@ -94,7 +97,7 @@ def dot_sweep():
     ax.set_xlabel("terms in the dot product", color=INK_2)
     ax.set_ylabel("median relative error, 200 seeds", color=INK_2)
     ax.set_title("Accumulation alone: nothing cast, only the sum rounds", color=INK, loc="left", fontsize=11)
-    ax.legend(frameon=False, fontsize=8, loc="upper left", labelcolor=INK_2)
+    ax.legend(frameon=False, fontsize=8, loc="center left", labelcolor=INK_2)
     fig.tight_layout()
     fig.savefig(IMG / "accumulation.png", facecolor=SURFACE)
     plt.close(fig)
