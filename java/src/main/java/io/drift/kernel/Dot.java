@@ -1,6 +1,5 @@
 package io.drift.kernel;
 
-import io.drift.fmt.MiniFloat;
 import io.drift.fmt.Rng;
 import io.drift.fmt.Rounding;
 import io.drift.kernel.NumericPolicy.Acc;
@@ -8,151 +7,177 @@ import io.drift.kernel.NumericPolicy.Acc;
 /**
  * The inner product, with the accumulator treated as an experimental variable.
  *
- * <p>The products are exact. That is not a simplification: a tensor core multiplies
- * two narrow inputs into a wide intermediate and rounds nothing, and for every
- * format here the exact product of two representable values fits in a double with
- * room to spare. So the only rounding in a dot product is the accumulation, which
- * is exactly the thing that is hard to vary on real hardware and easy to vary here.
+ * <p>The products are exact. A tensor core multiplies two narrow inputs into a wide
+ * intermediate and rounds nothing, and for every format here the exact product of
+ * two representable values fits in a double. So the only rounding in a dot product
+ * is the accumulation, which is the part that cannot be varied on real hardware.
  *
- * <p>One known limit. The running sum is held in a double, so an add whose two
- * operands are more than about 37 binades apart can round once into the double and
- * again into the accumulator format. Both roundings are to nearest, and the second
- * operand at that separation is already far below the accumulator quantum, so the
- * result differs from a single rounding only on exact ties. Nothing in the training
- * runs comes close to that spread; {@code FP64} and {@code FP32} are unaffected
- * either way, since for them the double is the arithmetic rather than an
- * intermediate.
+ * <p>One known limit. The running sum lives in a double, so an add whose operands are
+ * more than about 37 binades apart can round once into the double and once more into
+ * a narrow accumulator. Both roundings are to nearest and the smaller operand is then
+ * far below the accumulator quantum, so the result can differ from a single rounding
+ * only on an exact tie. FP64 and FP32 are unaffected.
  */
 public final class Dot {
 
     private Dot() {
     }
 
-    /**
-     * Sum of {@code a[i] * b[i]} under the policy, over strided spans so a matmul can
-     * walk a row against a column without copying either.
-     */
     public static double dot(double[] a, int aOff, int aStride,
                              double[] b, int bOff, int bStride,
                              int n, NumericPolicy p, Rng rng) {
-        return switch (p.order()) {
-            case SEQUENTIAL -> straight(a, aOff, aStride, b, bOff, bStride, 0, n, p, rng);
-            case REVERSED -> reversed(a, aOff, aStride, b, bOff, bStride, n, p, rng);
+        return switch (p.order) {
+            case SEQUENTIAL -> forward(a, aOff, aStride, b, bOff, bStride, 0, n, p, rng);
+            case REVERSED -> backward(a, aOff, aStride, b, bOff, bStride, n, p, rng);
             case PAIRWISE -> pairwise(a, aOff, aStride, b, bOff, bStride, 0, n, p, rng);
             case BLOCKED -> blocked(a, aOff, aStride, b, bOff, bStride, n, p, rng);
         };
     }
 
-    /** First to last, one running total. */
-    private static double straight(double[] a, int aOff, int aStride,
-                                   double[] b, int bOff, int bStride,
-                                   int from, int count, NumericPolicy p, Rng rng) {
-        Acc acc = p.acc();
-        MiniFloat f = acc.format();
-        Rounding rm = p.accRounding();
-
-        if (acc == Acc.FP64) {
-            double s = 0.0;
-            for (int i = from; i < from + count; i++) {
-                s += a[aOff + i * aStride] * b[bOff + i * bStride];
+    private static double forward(double[] a, int aOff, int aStride,
+                                  double[] b, int bOff, int bStride,
+                                  int from, int count, NumericPolicy p, Rng rng) {
+        int ia = aOff + from * aStride;
+        int ib = bOff + from * bStride;
+        switch (p.acc) {
+            case FP64: {
+                double s = 0.0;
+                for (int i = 0; i < count; i++, ia += aStride, ib += bStride) {
+                    s += a[ia] * b[ib];
+                }
+                return s;
             }
-            return s;
-        }
-        if (acc == Acc.FP32) {
-            float s = 0.0f;
-            for (int i = from; i < from + count; i++) {
-                // One rounding per add, from the exact sum, which is what a tensor
-                // core does. Rounding the product first would be a second one.
-                s = (float) (s + a[aOff + i * aStride] * b[bOff + i * bStride]);
+            case FP32: {
+                float s = 0.0f;
+                for (int i = 0; i < count; i++, ia += aStride, ib += bStride) {
+                    // One rounding per add, from the exact sum, as a tensor core does.
+                    s = (float) (s + a[ia] * b[ib]);
+                }
+                return s;
             }
-            return s;
+            default: {
+                Acc acc = p.acc;
+                Rounding rm = p.accRounding;
+                double s = 0.0;
+                for (int i = 0; i < count; i++, ia += aStride, ib += bStride) {
+                    s = round(s + a[ia] * b[ib], acc, rm, rng);
+                }
+                return s;
+            }
         }
-        double s = 0.0;
-        for (int i = from; i < from + count; i++) {
-            s = f.quantize(s + a[aOff + i * aStride] * b[bOff + i * bStride], rm, rng);
-        }
-        return s;
     }
 
-    /**
-     * Last to first. The same products, the same format, the same accumulator width;
-     * only the order differs, so whatever gap opens up between this and
-     * {@link #straight} is error that no format can be blamed for.
-     */
-    private static double reversed(double[] a, int aOff, int aStride,
+    private static double backward(double[] a, int aOff, int aStride,
                                    double[] b, int bOff, int bStride,
                                    int n, NumericPolicy p, Rng rng) {
-        Acc acc = p.acc();
-        MiniFloat f = acc.format();
-        Rounding rm = p.accRounding();
-
-        if (acc == Acc.FP64) {
-            double s = 0.0;
-            for (int i = n - 1; i >= 0; i--) {
-                s += a[aOff + i * aStride] * b[bOff + i * bStride];
-            }
-            return s;
-        }
-        if (acc == Acc.FP32) {
-            float s = 0.0f;
-            for (int i = n - 1; i >= 0; i--) {
-                s = (float) (s + a[aOff + i * aStride] * b[bOff + i * bStride]);
-            }
-            return s;
-        }
         double s = 0.0;
+        float f = 0.0f;
         for (int i = n - 1; i >= 0; i--) {
-            s = f.quantize(s + a[aOff + i * aStride] * b[bOff + i * bStride], rm, rng);
+            double prod = a[aOff + i * aStride] * b[bOff + i * bStride];
+            switch (p.acc) {
+                case FP64 -> s += prod;
+                case FP32 -> f = (float) (f + prod);
+                default -> s = round(s + prod, p.acc, p.accRounding, rng);
+            }
         }
-        return s;
+        return p.acc == Acc.FP32 ? f : s;
     }
 
-    /** Below this many terms, recursing costs more than it saves. */
     private static final int PAIRWISE_BASE = 8;
 
-    /**
-     * Recursive halving. Every partial sum is rounded, but the depth of the tree is
-     * log n rather than n, so the errors compound over far fewer additions.
-     */
     private static double pairwise(double[] a, int aOff, int aStride,
                                    double[] b, int bOff, int bStride,
                                    int from, int count, NumericPolicy p, Rng rng) {
         if (count <= PAIRWISE_BASE) {
-            return straight(a, aOff, aStride, b, bOff, bStride, from, count, p, rng);
+            return forward(a, aOff, aStride, b, bOff, bStride, from, count, p, rng);
         }
         int half = count >>> 1;
         double left = pairwise(a, aOff, aStride, b, bOff, bStride, from, half, p, rng);
         double right = pairwise(a, aOff, aStride, b, bOff, bStride, from + half, count - half, p, rng);
-        return addIn(left, right, p, rng);
+        return switch (p.acc) {
+            case FP64 -> left + right;
+            case FP32 -> (float) (left + right);
+            default -> round(left + right, p.acc, p.accRounding, rng);
+        };
     }
 
-    /**
-     * Chunks of {@code accBlock}, each summed in the accumulator width, with the
-     * chunk totals summed in FP32.
-     *
-     * <p>This is what a real kernel does when it splits the K dimension across tiles
-     * or across cooperating threads, and it is why the same matmul on the same
-     * hardware can return a different number when only the tile size changes.
-     */
     private static double blocked(double[] a, int aOff, int aStride,
                                   double[] b, int bOff, int bStride,
                                   int n, NumericPolicy p, Rng rng) {
-        int block = Math.max(1, p.accBlock());
+        int block = Math.max(1, p.accBlock);
+        if (p.acc == Acc.FP64) {
+            double total = 0.0;
+            for (int start = 0; start < n; start += block) {
+                total += forward(a, aOff, aStride, b, bOff, bStride, start, Math.min(block, n - start), p, rng);
+            }
+            return total;
+        }
         float total = 0.0f;
         for (int start = 0; start < n; start += block) {
-            int len = Math.min(block, n - start);
-            double partial = straight(a, aOff, aStride, b, bOff, bStride, start, len, p, rng);
+            double partial = forward(a, aOff, aStride, b, bOff, bStride, start, Math.min(block, n - start), p, rng);
             total = (float) (total + partial);
         }
         return total;
     }
 
-    /** A single add in the accumulator width, for combining partial sums. */
-    private static double addIn(double x, double y, NumericPolicy p, Rng rng) {
-        return switch (p.acc()) {
-            case FP64 -> x + y;
-            case FP32 -> (float) (x + y);
-            case FP16, BF16 -> p.acc().format().quantize(x + y, p.accRounding(), rng);
-        };
+    // ------------------------------------------------------------ fast rounding
+
+    private static final int FP16_MANT = 10;
+    private static final int FP16_MIN_EXP = -14;
+    private static final double FP16_MAX = 65504.0;
+
+    private static final int BF16_MANT = 7;
+    private static final int BF16_MIN_EXP = -126;
+    private static final double BF16_MAX = Math.scalb(255.0, 120);
+
+    /**
+     * Round a finite value into FP16 or BF16, with saturation.
+     *
+     * <p>The same arithmetic as {@link io.drift.fmt.MiniFloat#quantize}, without the
+     * trip through a bit pattern, because it runs once per multiply-accumulate. It
+     * consumes random numbers in exactly the same pattern, so a test can hold the two
+     * to identical outputs under stochastic rounding as well as nearest.
+     */
+    public static double round(double x, Acc acc, Rounding rm, Rng rng) {
+        int mant;
+        int minExp;
+        double max;
+        if (acc == Acc.FP16) {
+            mant = FP16_MANT;
+            minExp = FP16_MIN_EXP;
+            max = FP16_MAX;
+        } else {
+            mant = BF16_MANT;
+            minExp = BF16_MIN_EXP;
+            max = BF16_MAX;
+        }
+        if (x == 0.0 || Double.isNaN(x)) {
+            return x;
+        }
+        double ax = Math.abs(x);
+        if (Double.isInfinite(ax)) {
+            return Math.copySign(max, x);
+        }
+        int e = Math.getExponent(ax);
+        if (e < minExp) {
+            e = minExp;
+        }
+        int q = e - mant;
+        double scaled = Math.scalb(ax, -q);
+        double m;
+        switch (rm) {
+            case NEAREST_EVEN -> m = Math.rint(scaled);
+            case TRUNCATE -> m = Math.floor(scaled);
+            default -> {
+                double fl = Math.floor(scaled);
+                double frac = scaled - fl;
+                m = frac == 0.0 ? fl : fl + (rng.nextDouble() < frac ? 1 : 0);
+            }
+        }
+        double r = Math.scalb(m, q);
+        if (r > max) {
+            r = max;
+        }
+        return Math.copySign(r, x);
     }
 }

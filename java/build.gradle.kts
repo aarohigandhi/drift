@@ -23,7 +23,7 @@ dependencies {
 }
 
 application {
-    mainClass = "io.drift.Main"
+    mainClass = "io.drift.train.TrainMain"
 }
 
 tasks.test {
@@ -42,9 +42,17 @@ tasks.register<JavaExec>("dumpTables") {
     classpath = sourceSets["main"].runtimeClasspath
 }
 
+// Inner products under every policy, 200 seeds, three lengths. Writes results/dot_sweep.csv.
+tasks.register<JavaExec>("dotSweep") {
+    group = "application"
+    mainClass = "io.drift.tools.DotSweep"
+    classpath = sourceSets["main"].runtimeClasspath
+}
+
+// The training sweep. Pass flags with --args, e.g. --args="--seeds 1,2,3 --steps 2000".
 tasks.register<JavaExec>("train") {
     group = "application"
     mainClass = "io.drift.train.TrainMain"
     classpath = sourceSets["main"].runtimeClasspath
-    jvmArgs = listOf("-Xmx2g")
+    jvmArgs = listOf("-Xmx3g")
 }

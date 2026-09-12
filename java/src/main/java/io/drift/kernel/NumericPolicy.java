@@ -7,43 +7,23 @@ import io.drift.fmt.Rounding;
 /**
  * Every arithmetic decision a matmul makes, as data.
  *
- * <p>This is the point of the project. On a GPU these are not separable: the format
- * the inputs are cast to, the width the products are accumulated in, the order they
- * are added in, and the way tensors are scaled all arrive together as one kernel,
- * so when a run diverges the blame lands on whichever of them is currently
- * fashionable. Here each one is a field, and a run can be repeated with exactly one
- * of them changed.
- *
- * <p>Accumulation order is the field that has no equivalent anywhere else. Addition
- * in floating point is not associative, so the order the products are summed in
- * changes the answer, and no library exposes it because on real hardware it is a
- * property of the kernel rather than a setting.
+ * <p>On a GPU these are not separable: the format the inputs are cast to, the width
+ * the products are accumulated in, the order they are added in, and the way tensors
+ * are scaled all arrive together as one kernel. When a run diverges the blame lands
+ * on whichever of them is currently fashionable. Here each one is a field, and a run
+ * can be repeated with exactly one of them changed.
  */
-public record NumericPolicy(
-        String name,
-        MiniFloat inputFormat,
-        Rounding inputRounding,
-        Scaling scaling,
-        int scaleBlock,
-        Acc acc,
-        Order order,
-        int accBlock,
-        Rounding accRounding
-) {
+public final class NumericPolicy {
 
     /** Width the products are summed in. */
     public enum Acc {
-        /** Double. The reference: everything else is measured as drift away from it. */
+        /** Double. The reference. */
         FP64,
-        /**
-         * Real IEEE binary32, via a Java float, not a simulation of one. What a
-         * tensor core accumulates in.
-         */
+        /** Real IEEE binary32 through a Java float, not a simulation of one. */
         FP32,
         FP16,
         BF16;
 
-        /** The format to round through, or null when the machine already does it. */
         public MiniFloat format() {
             return switch (this) {
                 case FP64, FP32 -> null;
@@ -55,94 +35,154 @@ public record NumericPolicy(
 
     /** The order the products are summed in. */
     public enum Order {
-        /** First to last, one running total. What a naive loop does. */
+        /** First to last, one running total. */
         SEQUENTIAL,
-        /**
-         * Last to first. Numerically no more or less defensible than SEQUENTIAL,
-         * and included precisely for that reason: any gap between the two is
-         * error that no choice of format can be blamed for.
-         */
+        /** Last to first. Any gap from SEQUENTIAL is error no format can be blamed for. */
         REVERSED,
-        /** Recursive halving. Error grows with log n rather than n. */
+        /** Recursive halving. */
         PAIRWISE,
-        /**
-         * Sum in chunks, each chunk in the accumulator width, chunk totals in FP32.
-         * What hardware actually does when it splits the K dimension across tiles,
-         * and the reason a matmul can change answer when only the tile size changes.
-         */
+        /** Chunks summed in the accumulator width, chunk totals in FP32, as tiled kernels do. */
         BLOCKED
     }
 
     /** How a tensor is scaled into range before it is cast. */
     public enum Scaling {
-        /** Cast as-is. Anything outside the format saturates. */
+        /** Cast as-is. */
         NONE,
-        /**
-         * One factor for the whole tensor, chosen so its largest element lands on
-         * the largest representable value. The factor is an arbitrary float, so
-         * multiplying by it is itself a rounding.
-         */
+        /** One arbitrary float factor for the whole tensor. */
         PER_TENSOR,
-        /**
-         * OCP Microscaling: one shared exponent per block of elements, held in E8M0.
-         * The factor is a power of two, so unlike PER_TENSOR the scaling itself is
-         * exact and the only error is the cast.
-         */
+        /** OCP Microscaling: a shared power-of-two exponent per block, held in E8M0. */
         MX_BLOCK
     }
 
-    /** FP64 throughout, no scaling, no quantisation. The thing everything is compared to. */
+    public final String name;
+    /** Format for weights and activations entering a matmul. Null means no cast. */
+    public final MiniFloat inputFormat;
+    /** Format for output gradients entering a matmul. Null means same as inputFormat. */
+    public final MiniFloat gradFormat;
+    public final Rounding inputRounding;
+    public final Scaling scaling;
+    public final int scaleBlock;
+    /**
+     * For PER_TENSOR: 0 scales from the current tensor. N &gt; 0 scales from the largest
+     * amax seen over the previous N steps, which is delayed scaling.
+     */
+    public final int amaxHistory;
+    /**
+     * For MX_BLOCK: added to the OCP shared exponent. 0 is the specification, which
+     * maps a block maximum into the top binade and can clamp it; 1 spends a bit of
+     * precision to guarantee it never clamps.
+     */
+    public final int mxHeadroom;
+    public final Acc acc;
+    public final Order order;
+    public final int accBlock;
+    public final Rounding accRounding;
+    /** Master weights and optimizer state rounded to FP32 after every update. */
+    public final boolean masterFp32;
+
+    private NumericPolicy(Builder b) {
+        this.name = b.name;
+        this.inputFormat = b.inputFormat;
+        this.gradFormat = b.gradFormat;
+        this.inputRounding = b.inputRounding;
+        this.scaling = b.scaling;
+        this.scaleBlock = b.scaleBlock;
+        this.amaxHistory = b.amaxHistory;
+        this.mxHeadroom = b.mxHeadroom;
+        this.acc = b.acc;
+        this.order = b.order;
+        this.accBlock = b.accBlock;
+        this.accRounding = b.accRounding;
+        this.masterFp32 = b.masterFp32;
+    }
+
+    /** Format actually used for gradients. */
+    public MiniFloat gradCastFormat() {
+        return gradFormat != null ? gradFormat : inputFormat;
+    }
+
+    /** FP64 throughout, nothing cast, nothing rounded. Everything else is measured against it. */
     public static NumericPolicy exact() {
-        return new NumericPolicy("exact", null, Rounding.NEAREST_EVEN,
-                Scaling.NONE, 32, Acc.FP64, Order.SEQUENTIAL, 128, Rounding.NEAREST_EVEN);
+        return builder("exact").acc(Acc.FP64).masterFp32(false).build();
     }
 
-    /** BF16 inputs into an FP32 accumulator. The ordinary way to train today. */
-    public static NumericPolicy bf16Baseline() {
-        return new NumericPolicy("bf16", Formats.BF16, Rounding.NEAREST_EVEN,
-                Scaling.NONE, 32, Acc.FP32, Order.SEQUENTIAL, 128, Rounding.NEAREST_EVEN);
+    public static Builder builder(String name) {
+        return new Builder(name);
     }
 
-    /** E4M3 inputs, per-tensor scaled, into an FP32 accumulator. The usual FP8 recipe. */
-    public static NumericPolicy fp8Baseline() {
-        return new NumericPolicy("fp8-e4m3", Formats.E4M3, Rounding.NEAREST_EVEN,
-                Scaling.PER_TENSOR, 32, Acc.FP32, Order.SEQUENTIAL, 128, Rounding.NEAREST_EVEN);
+    public Builder toBuilder(String newName) {
+        Builder b = new Builder(newName);
+        b.inputFormat = inputFormat;
+        b.gradFormat = gradFormat;
+        b.inputRounding = inputRounding;
+        b.scaling = scaling;
+        b.scaleBlock = scaleBlock;
+        b.amaxHistory = amaxHistory;
+        b.mxHeadroom = mxHeadroom;
+        b.acc = acc;
+        b.order = order;
+        b.accBlock = accBlock;
+        b.accRounding = accRounding;
+        b.masterFp32 = masterFp32;
+        return b;
     }
 
-    /** MXFP4: E2M1 elements under a shared power-of-two exponent every 32 values. */
-    public static NumericPolicy mxfp4() {
-        return new NumericPolicy("mxfp4", Formats.E2M1, Rounding.NEAREST_EVEN,
-                Scaling.MX_BLOCK, 32, Acc.FP32, Order.SEQUENTIAL, 128, Rounding.NEAREST_EVEN);
-    }
-
-    /** True when no quantisation happens at all and the accumulator is FP64. */
-    public boolean isExact() {
-        return inputFormat == null && acc == Acc.FP64;
-    }
-
-    /** A copy with one field changed, which is how the sweep is built. */
-    public NumericPolicy with(String newName, Acc newAcc, Order newOrder) {
-        return new NumericPolicy(newName, inputFormat, inputRounding, scaling, scaleBlock,
-                newAcc, newOrder, accBlock, accRounding);
-    }
-
-    public NumericPolicy withOrder(String newName, Order newOrder, int newAccBlock) {
-        return new NumericPolicy(newName, inputFormat, inputRounding, scaling, scaleBlock,
-                acc, newOrder, newAccBlock, accRounding);
-    }
-
-    public NumericPolicy withRounding(String newName, Rounding newInput, Rounding newAcc) {
-        return new NumericPolicy(newName, inputFormat, newInput, scaling, scaleBlock,
-                acc, order, accBlock, newAcc);
-    }
-
-    public NumericPolicy withScaling(String newName, Scaling newScaling, int newBlock) {
-        return new NumericPolicy(newName, inputFormat, inputRounding, newScaling, newBlock,
-                acc, order, accBlock, accRounding);
+    public String describe() {
+        return "name=" + name
+                + " input=" + (inputFormat == null ? "none" : inputFormat.name)
+                + " grad=" + (gradCastFormat() == null ? "none" : gradCastFormat().name)
+                + " inputRounding=" + inputRounding
+                + " scaling=" + scaling
+                + " scaleBlock=" + scaleBlock
+                + " amaxHistory=" + amaxHistory
+                + " mxHeadroom=" + mxHeadroom
+                + " acc=" + acc
+                + " order=" + order
+                + " accBlock=" + accBlock
+                + " accRounding=" + accRounding
+                + " masterFp32=" + masterFp32;
     }
 
     @Override
     public String toString() {
         return name;
+    }
+
+    public static final class Builder {
+        private final String name;
+        private MiniFloat inputFormat = null;
+        private MiniFloat gradFormat = null;
+        private Rounding inputRounding = Rounding.NEAREST_EVEN;
+        private Scaling scaling = Scaling.NONE;
+        private int scaleBlock = 32;
+        private int amaxHistory = 0;
+        private int mxHeadroom = 0;
+        private Acc acc = Acc.FP32;
+        private Order order = Order.SEQUENTIAL;
+        private int accBlock = 32;
+        private Rounding accRounding = Rounding.NEAREST_EVEN;
+        private boolean masterFp32 = true;
+
+        private Builder(String name) {
+            this.name = name;
+        }
+
+        public Builder input(MiniFloat f) { this.inputFormat = f; return this; }
+        public Builder grad(MiniFloat f) { this.gradFormat = f; return this; }
+        public Builder inputRounding(Rounding r) { this.inputRounding = r; return this; }
+        public Builder scaling(Scaling s) { this.scaling = s; return this; }
+        public Builder scaleBlock(int n) { this.scaleBlock = n; return this; }
+        public Builder amaxHistory(int n) { this.amaxHistory = n; return this; }
+        public Builder mxHeadroom(int n) { this.mxHeadroom = n; return this; }
+        public Builder acc(Acc a) { this.acc = a; return this; }
+        public Builder order(Order o) { this.order = o; return this; }
+        public Builder accBlock(int n) { this.accBlock = n; return this; }
+        public Builder accRounding(Rounding r) { this.accRounding = r; return this; }
+        public Builder masterFp32(boolean b) { this.masterFp32 = b; return this; }
+
+        public NumericPolicy build() {
+            return new NumericPolicy(this);
+        }
     }
 }
