@@ -82,19 +82,15 @@ is shrinking the step.
 | `fp8-mx` | 0/3 | 1.960 (1.941–1.985) | +0.018 | 0.9884 | 0.900 | 0.170 |
 | `fp8-mx-headroom` | 0/3 | 1.941 (1.936–1.948) | -0.001 | 0.9975 | 1.001 | 0.071 |
 | `fp8-reversed` | 0/3 | 1.944 (1.938–1.947) | +0.002 | 0.9960 | 1.002 | 0.090 |
-| `fp8-acc-fp16` | 0/2 | 1.944 (1.943–1.946) | +0.003 | 0.9960 | 1.003 | 0.090 |
-| `fp8-acc-fp16-pairwise` | 0/2 | 1.943 (1.941–1.945) | +0.002 | 0.9960 | 1.002 | 0.090 |
-| `fp8-acc-bf16` | 0/2 | 1.944 (1.942–1.945) | +0.002 | 0.9957 | 1.003 | 0.093 |
-| `fp8-acc-bf16-pairwise` | 0/2 | 1.944 (1.939–1.949) | +0.002 | 0.9959 | 1.003 | 0.091 |
-| `fp8-acc-bf16-blocked` | 0/2 | 1.938 (1.937–1.938) | -0.004 | 0.9959 | 1.003 | 0.091 |
-| `fp8-acc-bf16-sr` | 0/2 | 1.945 (1.938–1.952) | +0.004 | 0.9955 | 1.003 | 0.096 |
+| `fp8-acc-fp16` | 0/3 | 1.945 (1.943–1.946) | +0.003 | 0.9960 | 1.003 | 0.090 |
+| `fp8-acc-fp16-pairwise` | 0/3 | 1.940 (1.934–1.945) | -0.002 | 0.9960 | 1.003 | 0.090 |
+| `fp8-acc-bf16` | 0/3 | 1.941 (1.936–1.945) | -0.001 | 0.9957 | 1.003 | 0.093 |
+| `fp8-acc-bf16-pairwise` | 0/3 | 1.946 (1.939–1.950) | +0.004 | 0.9960 | 1.003 | 0.090 |
+| `fp8-acc-bf16-blocked` | 0/3 | 1.938 (1.937–1.939) | -0.004 | 0.9959 | 1.003 | 0.091 |
+| `fp8-acc-bf16-sr` | 0/3 | 1.944 (1.938–1.952) | +0.002 | 0.9955 | 1.003 | 0.096 |
 | `mxfp4` | 0/3 | 2.044 (2.024–2.070) | +0.102 | 0.9125 | 0.714 | 0.432 |
 | `mxfp4-headroom` | 3/3 | — | — | 0.7655 | 0.807 | 0.687 |
 | `mxfp4-sr` | 0/3 | 2.393 (2.325–2.430) | +0.451 | 0.7718 | 0.548 | 0.640 |
-
-The six accumulator policies show two seeds. Their third seed was still
-running when this was written. They are the slowest runs,
-because every add goes through a 16-bit rounding.
 
 ![Gradient gain during training](docs/img/gain.png)
 
@@ -115,12 +111,13 @@ What the runs say, largest effect first:
   +0.45 held-out loss and gain 0.55. Each rounding is unbiased, but the gradient is
   still systematically shorter. The shrinkage is worst at the output layer (0.50),
   but its mechanism isn't isolated here.
-- **Every accumulator variant trains like `fp8`.** fp16 and bf16
-  accumulators, sequential, pairwise, blocked or stochastic, all land within
-  ±0.004 of `fp8`. That's inside `fp8`'s own spread across seeds (1.943–1.948).
-  This model's widest matmul is 128 terms, where the dot sweep puts accumulator
-  error far below the FP8 cast. Whether the order effect matters at transformer
-  widths is still open; see Limitations.
+- **Every accumulator variant trains like `fp8`.** fp16 and bf16 accumulators,
+  sequential, pairwise, blocked or stochastic, land between 1.938 and 1.946
+  against `fp8`'s 1.945. The lowest, blocked bf16, is below even the exact run
+  (1.942), so this spread is trajectory noise, not a difference in arithmetic
+  quality. This model's widest matmul is 128 terms, where the dot sweep puts
+  accumulator error far below the FP8 cast. Whether the order effect matters at
+  transformer widths is still open; see Limitations.
 - **Delayed scaling, E4M3 gradients and reversed order changed nothing measurable
   here.** Delayed scaling fails when a tensor's range grows faster than its amax
   history, and this small, stable model never does that.
