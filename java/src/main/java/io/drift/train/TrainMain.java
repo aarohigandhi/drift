@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
  * <pre>
  * --data ../data/corpus.txt  --out ../results/runs
  * --policies all | fp8,mxfp4,...  --seeds 1,2,3  --steps 3000  --threads 9
+ * --ctx 8  --emb 16  --hidden 128  --batch 32  --summary summary.csv
  * </pre>
  */
 public final class TrainMain {
@@ -29,6 +30,7 @@ public final class TrainMain {
         String outDir = "../results/runs";
         String policies = "all";
         String seeds = "1";
+        String summaryName = "summary.csv";
         int threads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
         Trainer.Config cfg = new Trainer.Config();
 
@@ -43,6 +45,9 @@ public final class TrainMain {
                 case "--threads" -> threads = Integer.parseInt(v);
                 case "--hidden" -> cfg.hidden = Integer.parseInt(v);
                 case "--batch" -> cfg.batch = Integer.parseInt(v);
+                case "--ctx" -> cfg.ctx = Integer.parseInt(v);
+                case "--emb" -> cfg.emb = Integer.parseInt(v);
+                case "--summary" -> summaryName = v;
                 default -> throw new IllegalArgumentException("unknown flag " + args[i]);
             }
         }
@@ -52,8 +57,10 @@ public final class TrainMain {
                 corpus.train.length, corpus.val.length, corpus.vocab);
 
         List<NumericPolicy> ps = new ArrayList<>();
+        // "all" is the main sweep. Policies defined for a follow-up experiment are
+        // requested by name.
         if (policies.equals("all")) {
-            ps.addAll(Policies.all().values());
+            ps.addAll(Policies.mainSweep().values());
         } else {
             for (String name : policies.split(",")) {
                 ps.add(Policies.byName(name.trim()));
@@ -79,11 +86,16 @@ public final class TrainMain {
             }
         }
 
+        // Wait for every run before creating the summary, so its existence means the sweep
+        // finished rather than that it started.
+        List<Trainer.Summary> done = new ArrayList<>();
+        for (Future<Trainer.Summary> f : futures) {
+            done.add(f.get());
+        }
         Files.createDirectories(out);
-        try (BufferedWriter w = Files.newBufferedWriter(out.resolve("summary.csv"))) {
+        try (BufferedWriter w = Files.newBufferedWriter(out.resolve(summaryName))) {
             w.write("policy,seed,steps,diverged,train_loss,val_loss,mean_cos,mean_gain,mean_rel,seconds\n");
-            for (Future<Trainer.Summary> f : futures) {
-                Trainer.Summary s = f.get();
+            for (Trainer.Summary s : done) {
                 w.write(String.format(Locale.ROOT, "%s,%d,%d,%b,%.6f,%.6f,%.8f,%.6f,%.6e,%.1f%n",
                         s.policy(), s.seed(), s.steps(), s.diverged(), s.finalTrainLoss(),
                         s.finalValLoss(), s.meanCos(), s.meanGain(), s.meanRel(), s.seconds()));

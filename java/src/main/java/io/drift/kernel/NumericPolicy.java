@@ -61,6 +61,8 @@ public final class NumericPolicy {
     /** Format for output gradients entering a matmul. Null means same as inputFormat. */
     public final MiniFloat gradFormat;
     public final Rounding inputRounding;
+    /** Rounding for gradient casts. Null means same as inputRounding. */
+    public final Rounding gradRounding;
     public final Scaling scaling;
     public final int scaleBlock;
     /**
@@ -86,6 +88,7 @@ public final class NumericPolicy {
         this.inputFormat = b.inputFormat;
         this.gradFormat = b.gradFormat;
         this.inputRounding = b.inputRounding;
+        this.gradRounding = b.gradRounding;
         this.scaling = b.scaling;
         this.scaleBlock = b.scaleBlock;
         this.amaxHistory = b.amaxHistory;
@@ -95,6 +98,11 @@ public final class NumericPolicy {
         this.accBlock = b.accBlock;
         this.accRounding = b.accRounding;
         this.masterFp32 = b.masterFp32;
+    }
+
+    /** Rounding actually used for gradient casts. */
+    public Rounding gradCastRounding() {
+        return gradRounding != null ? gradRounding : inputRounding;
     }
 
     /** Format actually used for gradients. */
@@ -116,6 +124,7 @@ public final class NumericPolicy {
         b.inputFormat = inputFormat;
         b.gradFormat = gradFormat;
         b.inputRounding = inputRounding;
+        b.gradRounding = gradRounding;
         b.scaling = scaling;
         b.scaleBlock = scaleBlock;
         b.amaxHistory = amaxHistory;
@@ -133,6 +142,7 @@ public final class NumericPolicy {
                 + " input=" + (inputFormat == null ? "none" : inputFormat.name)
                 + " grad=" + (gradCastFormat() == null ? "none" : gradCastFormat().name)
                 + " inputRounding=" + inputRounding
+                + " gradRounding=" + gradCastRounding()
                 + " scaling=" + scaling
                 + " scaleBlock=" + scaleBlock
                 + " amaxHistory=" + amaxHistory
@@ -154,6 +164,7 @@ public final class NumericPolicy {
         private MiniFloat inputFormat = null;
         private MiniFloat gradFormat = null;
         private Rounding inputRounding = Rounding.NEAREST_EVEN;
+        private Rounding gradRounding = null;
         private Scaling scaling = Scaling.NONE;
         private int scaleBlock = 32;
         private int amaxHistory = 0;
@@ -171,6 +182,7 @@ public final class NumericPolicy {
         public Builder input(MiniFloat f) { this.inputFormat = f; return this; }
         public Builder grad(MiniFloat f) { this.gradFormat = f; return this; }
         public Builder inputRounding(Rounding r) { this.inputRounding = r; return this; }
+        public Builder gradRounding(Rounding r) { this.gradRounding = r; return this; }
         public Builder scaling(Scaling s) { this.scaling = s; return this; }
         public Builder scaleBlock(int n) { this.scaleBlock = n; return this; }
         public Builder amaxHistory(int n) { this.amaxHistory = n; return this; }

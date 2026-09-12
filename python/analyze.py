@@ -106,9 +106,9 @@ def dot_sweep():
 # ------------------------------------------------------------------ training
 
 
-def load_runs():
+def load_runs(runs_dir):
     runs = defaultdict(dict)  # policy -> seed -> parsed
-    for path in sorted((RESULTS / "runs").glob("*.jsonl")):
+    for path in sorted(runs_dir.glob("*.jsonl")):
         cfg, measures, evals, summary, diverged_at = None, [], [], None, None
         for line in path.read_text().splitlines():
             try:
@@ -145,8 +145,8 @@ def fmt_range(values):
     return f"{m:.3f} ({min(values):.3f}–{max(values):.3f})"
 
 
-def training(order):
-    runs = load_runs()
+def training(order, runs_dir, table_name, layer_policies, layer_name, gain_figure):
+    runs = load_runs(runs_dir)
     base = runs.get("fp32", {})
 
     lines = ["| policy | diverged | held-out loss, mean (range) | vs fp32, paired | grad cos | grad gain | grad rel. error |",
@@ -167,8 +167,14 @@ def training(order):
         delta = f"{statistics.mean(deltas):+.3f}" if deltas else "—"
         lines.append(f"| `{policy}` | {div}/{len(seeds)} | {fmt_range(vals)} | {delta} | "
                      f"{cos:.4f} | {gain:.3f} | {rel:.3f} |")
-    (RESULTS / "train_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    (RESULTS / table_name).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
+    if gain_figure:
+        gain_plot(runs)
+    layer_table(runs, layer_policies, layer_name)
+
+
+def gain_plot(runs):
     # Figure: gradient gain through training, averaged over seeds.
     fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
     fig.patch.set_facecolor(SURFACE)
@@ -200,20 +206,28 @@ def training(order):
     fig.savefig(IMG / "gain.png", facecolor=SURFACE)
     plt.close(fig)
 
-    # Per-layer gain for the policies that shrink, to see where the shrinkage enters.
-    layer_lines = ["| policy | w1 gain | w2 gain | w3 gain |", "|---|---:|---:|---:|"]
-    for policy in ["fp8", "fp8-mx", "fp8-mx-headroom", "mxfp4", "mxfp4-headroom", "mxfp4-sr"]:
+
+
+def layer_table(runs, policies, name):
+    """Per-layer gain and relative error, to see where an effect enters."""
+    layer_lines = ["| policy | w1 gain | w2 gain | w3 gain | w1 rel. error | w2 rel. error | w3 rel. error |",
+                   "|---|---:|---:|---:|---:|---:|---:|"]
+    for policy in policies:
         if policy not in runs:
             continue
-        acc = defaultdict(list)
+        gain = defaultdict(list)
+        rel = defaultdict(list)
         for r in runs[policy].values():
             for m in r["measures"]:
                 for layer, v in m["layers"].items():
                     if v["gain"] is not None:
-                        acc[layer].append(v["gain"])
+                        gain[layer].append(v["gain"])
+                    if v["rel"] is not None:
+                        rel[layer].append(v["rel"])
         layer_lines.append(f"| `{policy}` | " + " | ".join(
-            f"{statistics.mean(acc[l]):.3f}" for l in ("w1", "w2", "w3")) + " |")
-    (RESULTS / "layer_table.md").write_text("\n".join(layer_lines) + "\n", encoding="utf-8", newline="\n")
+            f"{statistics.mean(gain[l]):.3f}" for l in ("w1", "w2", "w3")) + " | " + " | ".join(
+            f"{statistics.mean(rel[l]):.3f}" for l in ("w1", "w2", "w3")) + " |")
+    (RESULTS / name).write_text("\n".join(layer_lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def main():
@@ -227,8 +241,17 @@ def main():
         "mxfp4", "mxfp4-headroom", "mxfp4-sr",
     ]
     if (RESULTS / "runs").exists():
-        training(order)
-    for name in ("dot_table.md", "train_table.md", "layer_table.md"):
+        training(order, RESULTS / "runs", "train_table.md",
+                 ["fp8", "fp8-mx", "fp8-mx-headroom", "mxfp4", "mxfp4-headroom",
+                  "mxfp4-sr", "mxfp4-sr-fwd", "mxfp4-sr-bwd"],
+                 "layer_table.md", gain_figure=True)
+        training(["mxfp4", "mxfp4-sr", "mxfp4-sr-fwd", "mxfp4-sr-bwd"], RESULTS / "runs",
+                 "sr_split_table.md", [], "sr_split_layers.md", gain_figure=False)
+    wide = ["fp32", "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked"]
+    if (RESULTS / "runs-wide").exists():
+        training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)
+    for name in ("dot_table.md", "train_table.md", "layer_table.md", "sr_split_table.md",
+                 "wide_table.md", "wide_layers.md"):
         p = RESULTS / name
         if p.exists():
             print(f"== {name}\n{p.read_text(encoding="utf-8")}")

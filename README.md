@@ -108,20 +108,75 @@ What the runs say, largest effect first:
   to fp32's. The shrinkage grows with depth, 0.96 at the first layer and 0.86 at
   the last.
 - **Stochastic rounding of the FP4 cast is the worst setting that still trains**:
-  +0.45 held-out loss and gain 0.55. Each rounding is unbiased, but the gradient is
-  still systematically shorter. The shrinkage is worst at the output layer (0.50),
-  but its mechanism isn't isolated here.
+  +0.45 held-out loss and gain 0.55. Splitting it in two puts all of the damage in
+  the backward pass. The split is below the list.
 - **Every accumulator variant trains like `fp8`.** fp16 and bf16 accumulators,
   sequential, pairwise, blocked or stochastic, land between 1.938 and 1.946
   against `fp8`'s 1.945. The lowest, blocked bf16, is below even the exact run
   (1.942), so this spread is trajectory noise, not a difference in arithmetic
   quality. This model's widest matmul is 128 terms, where the dot sweep puts
-  accumulator error far below the FP8 cast. Whether the order effect matters at
-  transformer widths is still open; see Limitations.
+  accumulator error far below the FP8 cast. The wide model below is where order
+  shows up.
 - **Delayed scaling, E4M3 gradients and reversed order changed nothing measurable
   here.** Delayed scaling fails when a tensor's range grows faster than its amax
   history, and this small, stable model never does that.
 - **bf16 matches fp32 and exact** to three decimals.
+
+### Summation order in a wide model
+
+The main model's widest matmul is 128 terms, too short for the accumulator to
+matter. So this model is built for it: 32 characters of context and 64-wide
+embeddings make the first layer's input 2,048 wide, with hidden size 64 (148k
+parameters). Nothing is cast. Each run is `fp32` with only the accumulator
+changed. 1,000 steps, 3 seeds.
+
+| policy | diverged | held-out loss, mean (range) | vs fp32, paired | grad cos | grad gain | grad rel. error |
+|---|---:|---|---:|---:|---:|---:|
+| `fp32` | 0/3 | 2.447 (2.431–2.475) | +0.000 | 1.0000 | 1.000 | 0.000 |
+| `acc-fp16` | 0/3 | 2.479 (2.452–2.498) | +0.032 | 0.9999 | 1.000 | 0.013 |
+| `acc-fp16-pairwise` | 0/3 | 2.468 (2.453–2.497) | +0.021 | 1.0000 | 1.000 | 0.002 |
+| `acc-bf16` | 0/3 | 2.468 (2.438–2.521) | +0.021 | 0.9946 | 0.995 | 0.100 |
+| `acc-bf16-pairwise` | 0/3 | 2.447 (2.427–2.481) | +0.000 | 0.9999 | 1.000 | 0.015 |
+| `acc-bf16-blocked` | 0/3 | 2.463 (2.430–2.497) | +0.016 | 0.9998 | 1.000 | 0.018 |
+
+The order effect from the dot sweep carries straight into the gradient. A bf16
+accumulator summing sequentially puts 10% error in the gradient; pairwise puts
+1.5%. fp16 shows the same 6.5× split, 1.3% against 0.2%. Almost all of it enters
+at the 2,048-wide layer, where the bf16 sequential error is 11.9%, against 3.3% at
+the output layer. The gain stays at 1.000 in every run but bf16 sequential (0.995).
+So accumulator error is mostly noise, not shrinkage.
+
+The loss is less clear. 13 of the 15 paired comparisons with `fp32` come out
+worse, so a 16-bit accumulator costs something at this width. But the size of the
+cost doesn't follow the gradient error. fp16 pairwise has the smallest gradient
+error of all, 0.2%, and is worse on every seed by about 0.02. bf16 pairwise, with
+seven times that error, lands on `fp32`. Those 15 comparisons share one `fp32` run
+per seed, so they are not independent, and the gaps are smaller than `fp32`'s own
+spread across seeds (2.431–2.475). Three seeds can show that the gradient changes,
+not how much the loss follows it.
+
+### Where the stochastic rounding damage comes from
+
+`mxfp4-sr` rounds both the forward casts (weights and activations) and the
+backward casts (output gradients) stochastically. Two more runs each change just
+one half:
+
+| policy | diverged | held-out loss, mean (range) | vs fp32, paired | grad cos | grad gain | grad rel. error |
+|---|---:|---|---:|---:|---:|---:|
+| `mxfp4` | 0/3 | 2.044 (2.024–2.070) | +0.102 | 0.9125 | 0.714 | 0.432 |
+| `mxfp4-sr` | 0/3 | 2.393 (2.325–2.430) | +0.451 | 0.7718 | 0.548 | 0.640 |
+| `mxfp4-sr-fwd` | 0/3 | 2.044 (2.041–2.048) | +0.102 | 0.8870 | 0.708 | 0.472 |
+| `mxfp4-sr-bwd` | 0/3 | 2.440 (2.353–2.557) | +0.498 | 0.8006 | 0.521 | 0.618 |
+
+Forward-only SR lands exactly on plain `mxfp4`: +0.102 either way. Backward-only
+SR is +0.498, which covers all of the combined run's loss.
+
+It isn't that each stochastically rounded gradient is more biased. At step 1 every
+run has the same weights, and all four start with the same gain, 0.68 to 0.69.
+They stay together through step 50. After that the backward-SR runs drift apart:
+by step 1,000 their gain is 0.48, against 0.74 for `mxfp4`. So rounding gradients
+stochastically steers training toward weights where FP4 shrinks the gradient
+more. Why those weights do that isn't isolated here.
 
 ## How it works
 
@@ -186,6 +241,8 @@ cd ../python && python verify_oracle.py --tables ../results/oracle
 python prepare_corpus.py
 cd ../java && ./gradlew dotSweep --args="../results/dot_sweep.csv"
 ./gradlew train --args="--seeds 1,2,3 --steps 2000"
+./gradlew train --args="--policies mxfp4-sr-fwd,mxfp4-sr-bwd --seeds 1,2,3 --steps 2000 --summary summary-sr-split.csv"
+./gradlew train --args="--out ../results/runs-wide --ctx 32 --emb 64 --hidden 64 --steps 1000 --seeds 1,2,3 --policies fp32,acc-fp16,acc-fp16-pairwise,acc-bf16,acc-bf16-pairwise,acc-bf16-blocked"
 cd ../python && python analyze.py
 ```
 
@@ -195,10 +252,10 @@ These results used 3.14.0.
 
 ## Limitations
 
-- **Small model, small matmuls.** 47k parameters, and the widest matmul is 128
-  terms. The accumulator effect above is 10× at 4,096 terms and much smaller at
-  128, so this model can't show whether it changes training at transformer
-  widths. That needs a bigger model than a CPU sweep allows.
+- **Small models.** The main model has 47k parameters and 128-term matmuls. The
+  wide model reaches 2,048 terms, which is enough to show the order effect in the
+  gradient, but not enough seeds or steps to say how much the loss follows it.
+  Transformer widths and training lengths are beyond a CPU sweep.
 - **An MLP, not a transformer.** Attention adds numerics of its own: softmax over
   long sequences, and products of two activations rather than activation times
   weight. None of that is measured.

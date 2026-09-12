@@ -49,11 +49,16 @@ public final class Quant {
      */
     public static int quantize(double[] src, int srcOff, double[] dst, int dstOff, int n,
                                MiniFloat f, NumericPolicy p, double scale, Rng rng) {
+        return quantize(src, srcOff, dst, dstOff, n, f, p, p.inputRounding, scale, rng);
+    }
+
+    /** As above, with the rounding mode given explicitly, so gradients can differ from inputs. */
+    public static int quantize(double[] src, int srcOff, double[] dst, int dstOff, int n,
+                               MiniFloat f, NumericPolicy p, Rounding rm, double scale, Rng rng) {
         if (f == null) {
             System.arraycopy(src, srcOff, dst, dstOff, n);
             return 0;
         }
-        Rounding rm = p.inputRounding;
         int clamped = 0;
         switch (p.scaling) {
             case NONE -> {
@@ -71,7 +76,7 @@ public final class Quant {
                     dst[dstOff + i] = f.quantize(up, rm, rng) * inv;
                 }
             }
-            case MX_BLOCK -> clamped = quantizeMx(src, srcOff, dst, dstOff, n, f, p, rng);
+            case MX_BLOCK -> clamped = quantizeMx(src, srcOff, dst, dstOff, n, f, p, rm, rng);
         }
         return clamped;
     }
@@ -88,7 +93,7 @@ public final class Quant {
      * contributes most to any product.
      */
     private static int quantizeMx(double[] src, int srcOff, double[] dst, int dstOff, int n,
-                                  MiniFloat f, NumericPolicy p, Rng rng) {
+                                  MiniFloat f, NumericPolicy p, Rounding rm, Rng rng) {
         int block = p.scaleBlock;
         int emaxElem = Math.getExponent(f.maxFinite);
         int clamped = 0;
@@ -110,7 +115,7 @@ public final class Quant {
             for (int i = 0; i < len; i++) {
                 double scaled = Math.scalb(src[srcOff + start + i], -sharedExp);
                 if (Math.abs(scaled) > f.maxFinite) clamped++;
-                double q = f.quantize(scaled, p.inputRounding, rng);
+                double q = f.quantize(scaled, rm, rng);
                 dst[dstOff + start + i] = Math.scalb(q, sharedExp);
             }
         }

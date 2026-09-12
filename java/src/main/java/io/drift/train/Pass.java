@@ -196,7 +196,7 @@ public final class Pass {
         int ng = batch * out;
 
         double sg = scaleFor(l, T_G, f, dy, ng);
-        clampedG += Quant.quantize(dy, 0, qG[l], 0, ng, f, p, sg, rng);
+        clampedG += Quant.quantize(dy, 0, qG[l], 0, ng, f, p, p.gradCastRounding(), sg, rng);
         if (f != null) {
             castG += ng;
         }

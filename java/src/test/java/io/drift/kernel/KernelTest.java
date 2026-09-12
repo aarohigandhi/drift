@@ -48,6 +48,16 @@ class KernelTest {
     }
 
     @Test
+    void gradientRoundingDefaultsToInputRoundingAndCanDiffer() {
+        NumericPolicy same = NumericPolicy.builder("s").input(Formats.E2M1)
+                .inputRounding(Rounding.STOCHASTIC).build();
+        assertEquals(Rounding.STOCHASTIC, same.gradCastRounding());
+        NumericPolicy split = same.toBuilder("t").gradRounding(Rounding.NEAREST_EVEN).build();
+        assertEquals(Rounding.STOCHASTIC, split.inputRounding);
+        assertEquals(Rounding.NEAREST_EVEN, split.gradCastRounding());
+    }
+
+    @Test
     void everyOrderAgreesInFp64() {
         Random r = new Random(5);
         int n = 1000;
