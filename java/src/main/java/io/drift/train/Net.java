@@ -75,6 +75,40 @@ public final class Net {
         return n;
     }
 
+    /** Dimensions, then every tensor, as raw doubles. Exact, so a reload is bit-identical. */
+    public void save(java.nio.file.Path path) throws java.io.IOException {
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(
+                new java.io.BufferedOutputStream(java.nio.file.Files.newOutputStream(path)))) {
+            out.writeInt(vocab);
+            out.writeInt(ctx);
+            out.writeInt(emb);
+            out.writeInt(hidden);
+            for (double[] t : tensors()) {
+                out.writeInt(t.length);
+                for (double v : t) {
+                    out.writeDouble(v);
+                }
+            }
+        }
+    }
+
+    public static Net load(java.nio.file.Path path) throws java.io.IOException {
+        try (java.io.DataInputStream in = new java.io.DataInputStream(
+                new java.io.BufferedInputStream(java.nio.file.Files.newInputStream(path)))) {
+            Net n = new Net(in.readInt(), in.readInt(), in.readInt(), in.readInt(), 0);
+            for (double[] t : n.tensors()) {
+                int len = in.readInt();
+                if (len != t.length) {
+                    throw new java.io.IOException("tensor length " + len + ", expected " + t.length);
+                }
+                for (int i = 0; i < len; i++) {
+                    t[i] = in.readDouble();
+                }
+            }
+            return n;
+        }
+    }
+
     private static void gaussian(double[] a, double std, Random r) {
         for (int i = 0; i < a.length; i++) {
             a[i] = r.nextGaussian() * std;

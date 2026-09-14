@@ -47,6 +47,8 @@ public final class Trainer {
          * answer what a different arithmetic would have done at the same point.
          */
         public String[] probes = {};
+        /** Write the final weights next to the run's log, for tools that need real tensors. */
+        public boolean saveWeights = false;
     }
 
     private final Config cfg;
@@ -164,6 +166,10 @@ public final class Trainer {
                     w.write(String.format(Locale.ROOT,
                             "{\"kind\":\"eval\",\"step\":%d,\"val_loss\":%s}%n", step, json(lastVal)));
                 }
+            }
+
+            if (cfg.saveWeights && !diverged) {
+                net.save(out.resolveSibling(out.getFileName().toString().replace(".jsonl", ".weights")));
             }
 
             double secs = (System.nanoTime() - started) / 1e9;

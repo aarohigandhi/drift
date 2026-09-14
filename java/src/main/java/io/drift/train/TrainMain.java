@@ -50,6 +50,7 @@ public final class TrainMain {
                 case "--emb" -> cfg.emb = Integer.parseInt(v);
                 case "--summary" -> summaryName = v;
                 case "--probes" -> cfg.probes = v.split(",");
+                case "--save-weights" -> cfg.saveWeights = Boolean.parseBoolean(v);
                 default -> throw new IllegalArgumentException("unknown flag " + args[i]);
             }
         }
