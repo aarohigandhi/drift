@@ -272,7 +272,7 @@ def probes(runs_dir):
             ax.plot(steps, smooth, color=SERIES[i], linewidth=2, linestyle=styles[run_policy], label=label)
     ax.set_xlabel("training step", color=INK_2)
     ax.set_ylabel("gradient gain along the exact gradient", color=INK_2)
-    ax.set_title("Same weights, two casts", color=INK, loc="left", fontsize=11)
+    ax.set_title("At the same weights, either rounding shrinks the gradient equally", color=INK, loc="left", fontsize=11)
     ax.legend(frameon=False, fontsize=8, loc="lower left", labelcolor=INK_2)
     fig.tight_layout()
     fig.savefig(IMG / "probe.png", facecolor=SURFACE)

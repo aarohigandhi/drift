@@ -178,7 +178,27 @@ run has the same weights, and all four start with the same gain, 0.68 to 0.69.
 They stay together through step 50. After that the backward-SR runs drift apart:
 by step 1,000 their gain is 0.48, against 0.74 for `mxfp4`. So rounding gradients
 stochastically steers training toward weights where FP4 shrinks the gradient
-more. Why those weights do that isn't isolated here.
+more.
+
+Probes confirm it. A probe computes the gradient under a second policy at the
+run's own weights and batch, without touching the update. (With probes on, the
+runs reproduce the sweep's losses exactly.) Along each trajectory, both casts were
+probed:
+
+| weights from | cast probed | step 1 | steps 25–250 | steps 275–1000 | steps 1025–2000 |
+|---|---|---:|---:|---:|---:|
+| `mxfp4` | `mxfp4` | 0.681 | 0.689 | 0.717 | 0.719 |
+| `mxfp4` | `mxfp4-sr-bwd` | 0.688 | 0.694 | 0.718 | 0.721 |
+| `mxfp4-sr-bwd` | `mxfp4` | 0.681 | 0.619 | 0.534 | 0.490 |
+| `mxfp4-sr-bwd` | `mxfp4-sr-bwd` | 0.688 | 0.615 | 0.528 | 0.485 |
+
+![Gradient gain of both casts along both trajectories](docs/img/probe.png)
+
+At any given weights, nearest and stochastic rounding shrink the gradient by the
+same amount, to within 0.006. What changes is the weights. Late in the
+backward-SR runs, *either* cast keeps only 49% of the gradient, against 72% at
+`mxfp4`'s weights. The backward-SR weights also clamp more: 52% of activations
+over the run, against 37%.
 
 ## How it works
 
