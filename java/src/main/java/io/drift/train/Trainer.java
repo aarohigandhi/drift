@@ -41,6 +41,12 @@ public final class Trainer {
         public int measureEvery = 25;
         public int evalEvery = 250;
         public int evalBatches = 32;
+        /**
+         * Policies whose gradient is also computed at every measurement, from this run's
+         * weights and batch. They never touch the update, so the run is unchanged; they
+         * answer what a different arithmetic would have done at the same point.
+         */
+        public String[] probes = {};
     }
 
     private final Config cfg;
@@ -67,6 +73,12 @@ public final class Trainer {
         Pass exact = new Pass(NumericPolicy.exact(), net, cfg.batch, 1);
         Grads g = new Grads(net);
         Grads ge = new Grads(net);
+
+        Pass[] probes = new Pass[cfg.probes.length];
+        for (int i = 0; i < probes.length; i++) {
+            probes[i] = new Pass(Policies.byName(cfg.probes[i]), net, cfg.batch, 0xBEEFL * (seed + 1) + i);
+        }
+        Grads gp = probes.length > 0 ? new Grads(net) : null;
 
         double[][] params = net.tensors();
         double[][] grads = g.tensors();
@@ -120,13 +132,25 @@ public final class Trainer {
                     gainSum += all[1];
                     relSum += all[2];
                     measured++;
+                    StringBuilder probeJson = new StringBuilder();
+                    for (int i = 0; i < probes.length; i++) {
+                        probes[i].lossAndGrads(ctxBuf, tgtBuf, gp);
+                        double[] c = compare(gp.tensors(), ge.tensors());
+                        if (i > 0) {
+                            probeJson.append(',');
+                        }
+                        probeJson.append(String.format(Locale.ROOT,
+                                "\"%s\":{\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s}}",
+                                probes[i].p.name, json(c[0]), json(c[1]), json(c[2]), compareLayers(gp, ge)));
+                    }
                     w.write(String.format(Locale.ROOT,
                             "{\"kind\":\"measure\",\"step\":%d,\"loss\":%s,\"loss_exact\":%s,"
                                     + "\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s},"
-                                    + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s}%n",
+                                    + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s,\"probes\":{%s}}%n",
                             step, json(loss), json(lossExact), json(all[0]), json(all[1]), json(all[2]),
                             layers, json(frac(pass.clampedX, pass.castX)),
-                            json(frac(pass.clampedW, pass.castW)), json(frac(pass.clampedG, pass.castG))));
+                            json(frac(pass.clampedW, pass.castW)), json(frac(pass.clampedG, pass.castG)),
+                            probeJson));
                 }
 
                 adam(params, grads, m, v, step, policy.masterFp32);

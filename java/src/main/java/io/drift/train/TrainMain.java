@@ -21,6 +21,7 @@ import java.util.concurrent.Future;
  * --data ../data/corpus.txt  --out ../results/runs
  * --policies all | fp8,mxfp4,...  --seeds 1,2,3  --steps 3000  --threads 9
  * --ctx 8  --emb 16  --hidden 128  --batch 32  --summary summary.csv
+ * --probes mxfp4,mxfp4-sr-bwd   (gradients under other policies, at this run's weights)
  * </pre>
  */
 public final class TrainMain {
@@ -48,6 +49,7 @@ public final class TrainMain {
                 case "--ctx" -> cfg.ctx = Integer.parseInt(v);
                 case "--emb" -> cfg.emb = Integer.parseInt(v);
                 case "--summary" -> summaryName = v;
+                case "--probes" -> cfg.probes = v.split(",");
                 default -> throw new IllegalArgumentException("unknown flag " + args[i]);
             }
         }
