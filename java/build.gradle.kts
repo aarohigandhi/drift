@@ -49,6 +49,13 @@ tasks.register<JavaExec>("dotSweep") {
     classpath = sourceSets["main"].runtimeClasspath
 }
 
+// The dot-product sweep on the wide model's real first-layer tensors. Appends to results/real_dot.csv.
+tasks.register<JavaExec>("realDotSweep") {
+    group = "application"
+    mainClass = "io.drift.tools.RealDotSweep"
+    classpath = sourceSets["main"].runtimeClasspath
+}
+
 // The training sweep. Pass flags with --args, e.g. --args="--seeds 1,2,3 --steps 2000".
 tasks.register<JavaExec>("train") {
     group = "application"

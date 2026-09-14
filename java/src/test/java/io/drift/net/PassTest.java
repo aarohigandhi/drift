@@ -51,6 +51,22 @@ class PassTest {
     }
 
     @Test
+    void savedWeightsReloadBitIdentical(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
+        Net net = new Net(VOCAB, CTX, EMB, HIDDEN, 23);
+        java.nio.file.Path file = dir.resolve("net.weights");
+        net.save(file);
+        Net back = Net.load(file);
+        double[][] a = net.tensors();
+        double[][] b = back.tensors();
+        for (int t = 0; t < a.length; t++) {
+            for (int i = 0; i < a[t].length; i++) {
+                assertTrue(Double.doubleToRawLongBits(a[t][i]) == Double.doubleToRawLongBits(b[t][i]),
+                        Net.TENSOR_NAMES[t] + "[" + i + "]");
+            }
+        }
+    }
+
+    @Test
     void uncastFp32PassStaysCloseToExact() {
         Net net = new Net(VOCAB, CTX, EMB, HIDDEN, 17);
         Grads ge = new Grads(net);
