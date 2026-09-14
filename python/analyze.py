@@ -174,13 +174,22 @@ def training(order, runs_dir, table_name, layer_policies, layer_name, gain_figur
     layer_table(runs, layer_policies, layer_name)
 
 
-def gain_plot(runs):
-    # Figure: gradient gain through training, averaged over seeds.
+def smoothed_gain(series_by_step, k=8):
+    """Seed-averaged gain per measured step, with a short trailing mean over steps."""
+    steps = sorted(series_by_step)
+    ys = [statistics.mean(series_by_step[s]) for s in steps]
+    smooth = [statistics.mean(ys[max(0, j - k + 1): j + 1]) for j in range(len(ys))]
+    return steps, smooth
+
+
+def gain_plot(runs, picks=("fp8", "fp8-mx", "mxfp4", "mxfp4-sr"), filename="gain.png",
+              title="How much of the true gradient step survives the arithmetic", nudge=None):
+    """Gradient gain through training, averaged over seeds."""
+    nudge = nudge or {}
     fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
     fig.patch.set_facecolor(SURFACE)
     style_axes(ax)
     ax.axhline(1.0, color=AXIS, linewidth=1)
-    picks = ["fp8", "fp8-mx", "mxfp4", "mxfp4-sr"]
     for i, policy in enumerate(picks):
         if policy not in runs:
             continue
@@ -189,23 +198,85 @@ def gain_plot(runs):
             for m in r["measures"]:
                 if m["gain"] is not None:
                     by_step[m["step"]].append(m["gain"])
-        steps = sorted(by_step)
-        ys = [statistics.mean(by_step[s]) for s in steps]
-        # A short trailing mean so the line reads as a trend, not as batch noise.
-        k = 8
-        smooth = [statistics.mean(ys[max(0, j - k + 1): j + 1]) for j in range(len(ys))]
+        steps, smooth = smoothed_gain(by_step)
         ax.plot(steps, smooth, color=SERIES[i], linewidth=2, linestyle=STYLES[i], label=policy)
-        ax.annotate(policy, (steps[-1], smooth[-1]), xytext=(8, 0), textcoords="offset points",
-                    color=INK_2, fontsize=9, va="center")
-    ax.set_xlim(0, 2350)
+        ax.annotate(policy, (steps[-1], smooth[-1]), xytext=(8, nudge.get(policy, 0)),
+                    textcoords="offset points", color=INK_2, fontsize=9, va="center")
+    ax.set_xlim(0, 2450)
     ax.set_xlabel("training step", color=INK_2)
     ax.set_ylabel("gradient gain along the exact gradient", color=INK_2)
-    ax.set_title("How much of the true gradient step survives the arithmetic", color=INK, loc="left", fontsize=11)
+    ax.set_title(title, color=INK, loc="left", fontsize=11)
     ax.legend(frameon=False, fontsize=8, loc="lower left", labelcolor=INK_2)
     fig.tight_layout()
-    fig.savefig(IMG / "gain.png", facecolor=SURFACE)
+    fig.savefig(IMG / filename, facecolor=SURFACE)
     plt.close(fig)
 
+
+# ------------------------------------------------------------------ probes
+
+
+PROBE_WINDOWS = [(1, 1), (25, 250), (275, 1000), (1025, 2000)]
+
+
+def probes(runs_dir):
+    """
+    Gain of each probe policy at each run's weights, averaged over seeds and step
+    windows. A row is a run, a column group is a probe, so reading across a row
+    compares two arithmetics at identical weights.
+    """
+    runs = load_runs(runs_dir)
+    if not runs:
+        return
+    probe_names = []
+    for seeds in runs.values():
+        for r in seeds.values():
+            for m in r["measures"]:
+                for name in m.get("probes", {}):
+                    if name not in probe_names:
+                        probe_names.append(name)
+            break
+        break
+
+    header = "| weights from | cast probed | " + " | ".join(
+        f"step {a}" if a == b else f"steps {a}–{b}" for a, b in PROBE_WINDOWS) + " |"
+    lines = [header, "|---|---|" + "---:|" * len(PROBE_WINDOWS)]
+    for run_policy in sorted(runs):
+        for probe in probe_names:
+            cells = []
+            for a, b in PROBE_WINDOWS:
+                vals = [m["probes"][probe]["gain"]
+                        for r in runs[run_policy].values() for m in r["measures"]
+                        if a <= m["step"] <= b and m["probes"].get(probe, {}).get("gain") is not None]
+                cells.append(f"{statistics.mean(vals):.3f}" if vals else "—")
+            lines.append(f"| `{run_policy}` | `{probe}` | " + " | ".join(cells) + " |")
+    (RESULTS / "probe_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+    # Figure: colour is the cast being probed, line style is whose weights it is probed at.
+    fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    style_axes(ax)
+    ax.axhline(1.0, color=AXIS, linewidth=1)
+    styles = {run: STYLES[j] for j, run in enumerate(sorted(runs))}
+    for i, probe in enumerate(probe_names):
+        for run_policy in sorted(runs):
+            by_step = defaultdict(list)
+            for r in runs[run_policy].values():
+                for m in r["measures"]:
+                    g = m["probes"].get(probe, {}).get("gain")
+                    if g is not None:
+                        by_step[m["step"]].append(g)
+            if not by_step:
+                continue
+            steps, smooth = smoothed_gain(by_step)
+            label = f"{probe} cast, at {run_policy} weights"
+            ax.plot(steps, smooth, color=SERIES[i], linewidth=2, linestyle=styles[run_policy], label=label)
+    ax.set_xlabel("training step", color=INK_2)
+    ax.set_ylabel("gradient gain along the exact gradient", color=INK_2)
+    ax.set_title("Same weights, two casts", color=INK, loc="left", fontsize=11)
+    ax.legend(frameon=False, fontsize=8, loc="lower left", labelcolor=INK_2)
+    fig.tight_layout()
+    fig.savefig(IMG / "probe.png", facecolor=SURFACE)
+    plt.close(fig)
 
 
 def layer_table(runs, policies, name):
@@ -247,11 +318,16 @@ def main():
                  "layer_table.md", gain_figure=True)
         training(["mxfp4", "mxfp4-sr", "mxfp4-sr-fwd", "mxfp4-sr-bwd"], RESULTS / "runs",
                  "sr_split_table.md", [], "sr_split_layers.md", gain_figure=False)
+        gain_plot(load_runs(RESULTS / "runs"), picks=("mxfp4", "mxfp4-sr-fwd", "mxfp4-sr-bwd"),
+                  filename="sr_split.png", title="Stochastic rounding, forward casts against backward casts",
+                  nudge={"mxfp4": 7, "mxfp4-sr-fwd": -7})
+    if (RESULTS / "runs-probe").exists():
+        probes(RESULTS / "runs-probe")
     wide = ["fp32", "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked"]
     if (RESULTS / "runs-wide").exists():
         training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)
     for name in ("dot_table.md", "train_table.md", "layer_table.md", "sr_split_table.md",
-                 "wide_table.md", "wide_layers.md"):
+                 "wide_table.md", "wide_layers.md", "probe_table.md"):
         p = RESULTS / name
         if p.exists():
             print(f"== {name}\n{p.read_text(encoding="utf-8")}")

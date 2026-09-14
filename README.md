@@ -171,6 +171,8 @@ one half:
 Forward-only SR lands exactly on plain `mxfp4`: +0.102 either way. Backward-only
 SR is +0.498, which covers all of the combined run's loss.
 
+![Gradient gain with stochastic rounding in the forward or backward casts](docs/img/sr_split.png)
+
 It isn't that each stochastically rounded gradient is more biased. At step 1 every
 run has the same weights, and all four start with the same gain, 0.68 to 0.69.
 They stay together through step 50. After that the backward-SR runs drift apart:
