@@ -154,32 +154,34 @@ The main model's widest matmul is 128 terms, too short for the accumulator to
 matter. So this model is built for it: 32 characters of context and 64-wide
 embeddings make the first layer's input 2,048 wide, with hidden size 64 (148k
 parameters). Nothing is cast. Each run is `fp32` with only the accumulator
-changed. 1,000 steps, 3 seeds.
+changed. 1,000 steps, 8 seeds.
 
 | policy | diverged | held-out loss, mean (range) | vs fp32, paired | grad cos | grad gain | grad rel. error |
 |---|---:|---|---:|---:|---:|---:|
-| `fp32` | 0/3 | 2.447 (2.431–2.475) | +0.000 | 1.0000 | 1.000 | 0.000 |
-| `acc-fp16` | 0/3 | 2.479 (2.452–2.498) | +0.032 | 0.9999 | 1.000 | 0.013 |
-| `acc-fp16-pairwise` | 0/3 | 2.468 (2.453–2.497) | +0.021 | 1.0000 | 1.000 | 0.002 |
-| `acc-bf16` | 0/3 | 2.468 (2.438–2.521) | +0.021 | 0.9946 | 0.995 | 0.100 |
-| `acc-bf16-pairwise` | 0/3 | 2.447 (2.427–2.481) | +0.000 | 0.9999 | 1.000 | 0.015 |
-| `acc-bf16-blocked` | 0/3 | 2.463 (2.430–2.497) | +0.016 | 0.9998 | 1.000 | 0.018 |
+| `fp32` | 0/8 | 2.455 (2.431–2.489) | +0.000 | 1.0000 | 1.000 | 0.000 |
+| `acc-fp16` | 0/8 | 2.470 (2.440–2.498) | +0.014 | 0.9999 | 1.000 | 0.013 |
+| `acc-fp16-pairwise` | 0/8 | 2.466 (2.450–2.497) | +0.011 | 1.0000 | 1.000 | 0.002 |
+| `acc-bf16` | 0/8 | 2.460 (2.430–2.521) | +0.005 | 0.9946 | 0.995 | 0.100 |
+| `acc-bf16-pairwise` | 0/8 | 2.457 (2.427–2.490) | +0.002 | 0.9999 | 1.000 | 0.016 |
+| `acc-bf16-blocked` | 0/8 | 2.464 (2.430–2.497) | +0.009 | 0.9998 | 1.000 | 0.018 |
 
 The order effect from the dot sweep carries straight into the gradient. A bf16
-accumulator summing sequentially puts 10% error in the gradient; pairwise puts
-1.5%. fp16 shows the same 6.5× split, 1.3% against 0.2%. Almost all of it enters
-at the 2,048-wide layer, where the bf16 sequential error is 11.9%, against 3.3% at
-the output layer. The gain stays at 1.000 in every run but bf16 sequential (0.995).
-So accumulator error is mostly noise, not shrinkage.
+accumulator summing sequentially puts 10% error into the gradient; pairwise puts
+1.6%. fp16 shows the same split, 1.3% against 0.2%. Almost all of it enters at the
+2,048-wide layer, where bf16 sequential's error is 11.9%, against 3.3% at the output
+layer. Gain stays at 1.000 in every run except bf16 sequential (0.995), so the
+accumulator error is mostly noise, not shrinkage.
 
-The loss is less clear. 13 of the 15 paired comparisons with `fp32` come out
-worse, so a 16-bit accumulator costs something at this width. But the size of the
-cost doesn't follow the gradient error. fp16 pairwise has the smallest gradient
-error of all, 0.2%, and is worse on every seed by about 0.02. bf16 pairwise, with
-seven times that error, lands on `fp32`. Those 15 comparisons share one `fp32` run
-per seed, so they are not independent, and the gaps are smaller than `fp32`'s own
-spread across seeds (2.431–2.475). Three seeds can show that the gradient changes,
-not how much the loss follows it.
+The loss shows no effect that 8 seeds can resolve. Every mean gap to `fp32` is
+small, +0.002 to +0.014, and none is clearly above zero: the largest, fp16
+sequential, is two standard errors out (±0.007), and 28 of the 40 paired
+comparisons come out worse. The gaps also don't follow the gradient error. bf16
+sequential, with 10% gradient error, is +0.005; fp16 pairwise, with 0.2%, is
++0.011.
+
+An earlier version of this section had 3 seeds, where 13 of 15 comparisons came
+out worse, and said a 16-bit accumulator "costs something". The extra seeds don't
+back that up.
 
 ### Where the stochastic rounding damage comes from
 
@@ -320,7 +322,7 @@ python prepare_corpus.py
 cd ../java && ./gradlew dotSweep --args="../results/dot_sweep.csv"
 ./gradlew train --args="--seeds 1,2,3 --steps 2000"
 ./gradlew train --args="--policies mxfp4-sr-fwd,mxfp4-sr-bwd --seeds 1,2,3 --steps 2000 --summary summary-sr-split.csv"
-./gradlew train --args="--out ../results/runs-wide --ctx 32 --emb 64 --hidden 64 --steps 1000 --seeds 1,2,3 --policies fp32,acc-fp16,acc-fp16-pairwise,acc-bf16,acc-bf16-pairwise,acc-bf16-blocked"
+./gradlew train --args="--out ../results/runs-wide --ctx 32 --emb 64 --hidden 64 --steps 1000 --seeds 1,2,3,4,5,6,7,8 --policies fp32,acc-fp16,acc-fp16-pairwise,acc-bf16,acc-bf16-pairwise,acc-bf16-blocked"
 ./gradlew train --args="--policies mxfp4,mxfp4-sr-bwd --probes mxfp4,mxfp4-sr-bwd --seeds 1,2,3 --steps 2000 --out ../results/runs-probe"
 ./gradlew train --args="--out ../results/runs-real --policies fp32 --seeds 1 --steps 1000 --ctx 32 --emb 64 --hidden 64 --save-weights true"
 ./gradlew realDotSweep --args="--init 1 --stage init"
@@ -335,8 +337,9 @@ These results used 3.14.0.
 ## Limitations
 
 - **Small models.** The main model has 47k parameters and 128-term matmuls. The
-  wide model reaches 2,048 terms, which is enough to show the order effect in the
-  gradient, but not enough seeds or steps to say how much the loss follows it.
+  wide model reaches 2,048 terms, where order changes the gradient 6× and the loss
+  by nothing 8 seeds can resolve. Longer runs might accumulate an effect that 1,000
+  steps don't.
   Transformer widths and training lengths are beyond a CPU sweep.
 - **An MLP, not a transformer.** Attention adds numerics of its own: softmax over
   long sequences, and products of two activations rather than activation times

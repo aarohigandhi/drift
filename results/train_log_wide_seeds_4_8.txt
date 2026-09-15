@@ -1,0 +1,32 @@
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+fp32                     seed 4  ok        train 3.0907  val 2.4712  cos 1.000000  gain 1.0000  rel 1.557e-06  288s
+fp32                     seed 5  ok        train 3.1769  val 2.4315  cos 1.000000  gain 1.0000  rel 1.635e-06  327s
+acc-fp16                 seed 4  ok        train 3.1576  val 2.4677  cos 0.999910  gain 0.9999  rel 1.281e-02  15341s
+acc-fp16-pairwise        seed 4  ok        train 3.2135  val 2.4781  cos 0.999998  gain 1.0000  rel 1.976e-03  15392s
+acc-bf16                 seed 4  ok        train 3.2431  val 2.4647  cos 0.994587  gain 0.9943  rel 1.000e-01  15414s
+acc-bf16-blocked         seed 4  ok        train 3.0543  val 2.4758  cos 0.999830  gain 1.0000  rel 1.821e-02  15422s
+acc-bf16-pairwise        seed 4  ok        train 3.0650  val 2.4904  cos 0.999875  gain 0.9998  rel 1.553e-02  15520s
+fp32                     seed 6  ok        train 2.1231  val 2.4891  cos 1.000000  gain 1.0000  rel 1.656e-06  193s
+acc-fp16                 seed 5  ok        train 3.2654  val 2.4403  cos 0.999907  gain 0.9999  rel 1.288e-02  15112s
+acc-fp16-pairwise        seed 5  ok        train 3.1990  val 2.4505  cos 0.999998  gain 1.0000  rel 1.956e-03  806s
+acc-bf16                 seed 5  ok        train 3.1067  val 2.4477  cos 0.994502  gain 0.9938  rel 1.001e-01  828s
+acc-bf16-blocked         seed 5  ok        train 3.1972  val 2.4584  cos 0.999827  gain 1.0001  rel 1.837e-02  838s
+acc-bf16-pairwise        seed 5  ok        train 3.0797  val 2.4562  cos 0.999874  gain 1.0001  rel 1.550e-02  942s
+acc-fp16                 seed 6  ok        train 2.1722  val 2.4832  cos 0.999899  gain 1.0000  rel 1.361e-02  757s
+acc-fp16-pairwise        seed 6  ok        train 2.0818  val 2.4568  cos 0.999998  gain 1.0000  rel 1.992e-03  804s
+fp32                     seed 7  ok        train 2.6494  val 2.4468  cos 1.000000  gain 1.0000  rel 1.594e-06  193s
+acc-bf16                 seed 6  ok        train 2.1089  val 2.4675  cos 0.994239  gain 0.9961  rel 1.037e-01  806s
+acc-bf16-blocked         seed 6  ok        train 2.2298  val 2.4948  cos 0.999830  gain 1.0001  rel 1.816e-02  810s
+acc-bf16-pairwise        seed 6  ok        train 2.1420  val 2.4697  cos 0.999864  gain 0.9997  rel 1.610e-02  908s
+acc-fp16                 seed 7  ok        train 2.6382  val 2.4644  cos 0.999911  gain 0.9998  rel 1.286e-02  725s
+acc-fp16-pairwise        seed 7  ok        train 2.6777  val 2.4809  cos 0.999998  gain 1.0000  rel 1.971e-03  765s
+fp32                     seed 8  ok        train 3.1157  val 2.4644  cos 1.000000  gain 1.0000  rel 1.500e-06  184s
+acc-bf16                 seed 7  ok        train 2.7324  val 2.4305  cos 0.994649  gain 0.9949  rel 1.001e-01  787s
+acc-bf16-pairwise        seed 7  ok        train 2.6253  val 2.4472  cos 0.999875  gain 0.9999  rel 1.545e-02  915s
+acc-bf16-blocked         seed 7  ok        train 2.6621  val 2.4561  cos 0.999834  gain 0.9999  rel 1.799e-02  802s
+acc-fp16                 seed 8  ok        train 2.9267  val 2.4652  cos 0.999912  gain 0.9998  rel 1.263e-02  725s
+acc-fp16-pairwise        seed 8  ok        train 3.0390  val 2.4613  cos 0.999998  gain 1.0000  rel 1.927e-03  721s
+acc-bf16                 seed 8  ok        train 3.0334  val 2.4682  cos 0.994996  gain 0.9955  rel 9.604e-02  725s
+acc-bf16-pairwise        seed 8  ok        train 2.9011  val 2.4516  cos 0.999882  gain 0.9998  rel 1.509e-02  795s
+acc-bf16-blocked         seed 8  ok        train 2.8695  val 2.4387  cos 0.999833  gain 1.0003  rel 1.810e-02  571s
+WIDE2 EXIT 0
