@@ -1,0 +1,2 @@
+policy,seed,steps,diverged,train_loss,val_loss,mean_cos,mean_gain,mean_rel,seconds
+fp32,1,1000,false,2.778075,2.475005,1.00000000,1.000000,1.608559e-06,14424.1

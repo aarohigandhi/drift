@@ -1,0 +1,3 @@
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+fp32                     seed 1  ok        train 2.7781  val 2.4750  cos 1.000000  gain 1.0000  rel 1.609e-06  14424s
+REAL EXIT 0

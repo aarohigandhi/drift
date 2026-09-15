@@ -218,7 +218,7 @@ def gain_plot(runs, picks=("fp8", "fp8-mx", "mxfp4", "mxfp4-sr"), filename="gain
 PROBE_WINDOWS = [(1, 1), (25, 250), (275, 1000), (1025, 2000)]
 
 
-def probes(runs_dir):
+def probes(runs_dir, table_name="probe_table.md", figure_name="probe.png"):
     """
     Gain of each probe policy at each run's weights, averaged over seeds and step
     windows. A row is a run, a column group is a probe, so reading across a row
@@ -249,8 +249,10 @@ def probes(runs_dir):
                         if a <= m["step"] <= b and m["probes"].get(probe, {}).get("gain") is not None]
                 cells.append(f"{statistics.mean(vals):.3f}" if vals else "—")
             lines.append(f"| `{run_policy}` | `{probe}` | " + " | ".join(cells) + " |")
-    (RESULTS / "probe_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    (RESULTS / table_name).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
+    if figure_name is None:
+        return
     # Figure: colour is the cast being probed, line style is whose weights it is probed at.
     fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
     fig.patch.set_facecolor(SURFACE)
@@ -275,7 +277,7 @@ def probes(runs_dir):
     ax.set_title("At the same weights, either rounding shrinks the gradient equally", color=INK, loc="left", fontsize=11)
     ax.legend(frameon=False, fontsize=8, loc="lower left", labelcolor=INK_2)
     fig.tight_layout()
-    fig.savefig(IMG / "probe.png", facecolor=SURFACE)
+    fig.savefig(IMG / figure_name, facecolor=SURFACE)
     plt.close(fig)
 
 
@@ -350,11 +352,13 @@ def main():
                   nudge={"mxfp4": 7, "mxfp4-sr-fwd": -7})
     if (RESULTS / "runs-probe").exists():
         probes(RESULTS / "runs-probe")
+    if (RESULTS / "runs-probe-headroom").exists():
+        probes(RESULTS / "runs-probe-headroom", "probe_headroom_table.md", None)
     wide = ["fp32", "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked"]
     if (RESULTS / "runs-wide").exists():
         training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)
     for name in ("dot_table.md", "train_table.md", "layer_table.md", "sr_split_table.md",
-                 "wide_table.md", "wide_layers.md", "probe_table.md", "real_dot_table.md"):
+                 "wide_table.md", "wide_layers.md", "probe_table.md", "probe_headroom_table.md", "real_dot_table.md"):
         p = RESULTS / name
         if p.exists():
             print(f"== {name}\n{p.read_text(encoding="utf-8")}")
