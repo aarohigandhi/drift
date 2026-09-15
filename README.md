@@ -40,6 +40,28 @@ A sequential bf16 accumulator at 4,096 terms loses **4.96e-02**. Casting the
 inputs to FP8 E4M3 with per-tensor scaling loses **3.61e-02**. At that length, a
 16-bit sum costs more than an 8-bit cast.
 
+Those vectors are synthetic, a normal draw times a lognormal scale.
+`RealDotSweep` runs the same comparison on real tensors: the first layer of the
+wide model described below, 64 held-out windows of 2,048-wide input against each
+of its 64 weight rows, for 4,096 real pre-activations. Median relative error, at
+initialization and after 1,000 steps of fp32 training:
+
+| policy | init | trained |
+|---|---:|---:|
+| fp32 accumulator, sequential | 6.80e-07 | 4.70e-07 |
+| fp16 accumulator, sequential | 5.51e-03 | 3.87e-03 |
+| fp16 accumulator, pairwise | 7.72e-04 | 4.58e-04 |
+| bf16 accumulator, sequential | **4.27e-02** | **2.98e-02** |
+| bf16 accumulator, pairwise | 5.87e-03 | 3.65e-03 |
+| e4m3 per-tensor cast | **3.81e-02** | **1.27e-02** |
+| bf16 cast | 2.42e-03 | 7.36e-04 |
+
+The real tensors keep the same order, and training sharpens it. The trained
+tensors fit a per-tensor scale better, so the E4M3 cast loses a third of what it
+did at init, while a sequential bf16 sum barely improves. After training, summing
+sequentially in bf16 costs 2.3× more than casting to E4M3. The RMS error ratios in
+[`results/real_dot_table.md`](results/real_dot_table.md) show the same.
+
 ### The OCP shared exponent helps FP4 and hurts FP8
 
 MX formats scale each block of 32 values by `2^(floor(log2(amax)) - emax)`. That
