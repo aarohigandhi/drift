@@ -273,9 +273,12 @@ On its first run it found 154 disagreements in e4m3, all negative zero. A positi
 zero times a negative number is negative zero, and a `Fraction` has no sign on
 zero. Java was right; the reference now tracks signed zero.
 
-The JUnit tests hold the fast accumulator rounding bit-identical to the verified
-formats over a million values per mode, random draws included. They also check
-the exact model gradients against finite differences on every parameter.
+The 24 JUnit tests hold the fast accumulator rounding bit-identical to the
+verified formats over a million values per mode, random draws included. They also
+check the exact model gradients against finite differences on every parameter.
+The probe results depend on three more: a run with probes matches a run without
+them exactly, a deterministic policy probing itself reproduces the run's own gain
+to every digit, and saved weights reload bit-identical.
 
 ## Running it
 
