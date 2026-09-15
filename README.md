@@ -122,10 +122,10 @@ What the runs say, largest effect first:
 
 - **FP4 with MX headroom diverges every time**, at steps 797, 1,141 and 1,442.
   It clamps nothing. The same format with the spec's exponent clamps about 38% of
-  activations and still trains, 0.10 above fp32. It is not that the headroom cast
-  gives a worse gradient: probed at the same weights, it is unbiased and about as
-  accurate as the spec cast. It fails through where it takes training. See the
-  probes below.
+  activations and still trains, 0.10 above fp32. It isn't a worse gradient that
+  sinks the headroom cast. Probed at `mxfp4`'s weights, it keeps 96–99% of the
+  gradient with about the same total error as the spec cast. It fails through
+  where it takes training. See the probes below.
 - **FP8 with the MX spec exponent shrinks every gradient by 10%** (gain 0.900), and
   its held-out loss is the worst of the FP8 runs. The cause is measured: 27–30% of
   activations clamp. tanh outputs sit just below 1.0, so a block maximum like
@@ -243,8 +243,8 @@ cast's total error at those weights is about the same as the spec cast's, 0.33 t
 
 So both FP4 results turn out the same way. The spec cast shrinks gradients through
 clamping, and backward SR makes that worse by moving to weights that clamp more.
-The headroom cast gives an unbiased, equally accurate gradient wherever it is
-probed, and training with it diverges anyway. At 4 bits, how good a gradient is at
+At `mxfp4`'s weights the headroom cast gives a nearly unbiased gradient with the
+same total error, and training with it diverges anyway. At 4 bits, how good a gradient is at
 one point doesn't predict what a cast does to training.
 
 ## How it works
