@@ -77,8 +77,10 @@ cost of one bit of resolution.
 | e2m1 | 4.08e-01 | **1.97e-01** | 2.92e-01 | 143.2 |
 
 With 8-bit elements the extra bit costs almost nothing, so clamping is pure loss.
-With 4-bit elements resolution is scarce, and clamping is the cheaper error. The
-training runs below show the same split, but more sharply.
+With 4-bit elements resolution is scarce, and on a single dot product clamping is
+the cheaper error. Training splits the same way, FP8 helped by headroom and FP4
+diverging with it, but the probes below show the FP4 half is not about per-step
+error.
 
 ### Training
 
@@ -120,8 +122,10 @@ What the runs say, largest effect first:
 
 - **FP4 with MX headroom diverges every time**, at steps 797, 1,141 and 1,442.
   It clamps nothing. The same format with the spec's exponent clamps about 38% of
-  activations and still trains, 0.10 above fp32. At 4 bits, the lost resolution
-  costs more than the clamping.
+  activations and still trains, 0.10 above fp32. It is not that the headroom cast
+  gives a worse gradient: probed at the same weights, it is unbiased and about as
+  accurate as the spec cast. It fails through where it takes training. See the
+  probes below.
 - **FP8 with the MX spec exponent shrinks every gradient by 10%** (gain 0.900), and
   its held-out loss is the worst of the FP8 runs. The cause is measured: 27–30% of
   activations clamp. tanh outputs sit just below 1.0, so a block maximum like
@@ -221,6 +225,27 @@ same amount, to within 0.006. What changes is the weights. Late in the
 backward-SR runs, *either* cast keeps only 49% of the gradient, against 72% at
 `mxfp4`'s weights. The backward-SR weights also clamp more: 52% of activations
 over the run, against 37%.
+
+That points at clamping, and a third probe confirms it. The cast with one bit of
+MX headroom never clamps. Probed along both trajectories, at the same weights:
+
+| weights from | no-clamp cast probed | step 1 | steps 25–250 | steps 275–1000 | steps 1025–2000 |
+|---|---|---:|---:|---:|---:|
+| `mxfp4` | `mxfp4-headroom` | 0.972 | 0.985 | 0.981 | 0.960 |
+| `mxfp4-sr-bwd` | `mxfp4-headroom` | 0.972 | 1.022 | 0.991 | 0.813 |
+
+Without the clamp, the gradient keeps 96–99% of its length at `mxfp4`'s weights,
+where the spec cast keeps 72%. At the backward-SR weights it keeps 99% through
+step 1,000, against 53%. After that it drops to 81%, still well above 49%, so
+clamping is most of the shrinkage but not all of it by the end. The headroom
+cast's total error at those weights is about the same as the spec cast's, 0.33 to
+0.49 against 0.38 to 0.45 at `mxfp4`'s weights.
+
+So both FP4 results turn out the same way. The spec cast shrinks gradients through
+clamping, and backward SR makes that worse by moving to weights that clamp more.
+The headroom cast gives an unbiased, equally accurate gradient wherever it is
+probed, and training with it diverges anyway. At 4 bits, how good a gradient is at
+one point doesn't predict what a cast does to training.
 
 ## How it works
 

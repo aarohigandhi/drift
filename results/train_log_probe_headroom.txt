@@ -1,0 +1,8 @@
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+mxfp4-sr-bwd             seed 1  ok        train 2.0549  val 2.4117  cos 0.795570  gain 0.4981  rel 6.251e-01  14402s
+mxfp4                    seed 2  ok        train 2.3413  val 2.0236  cos 0.917804  gain 0.7212  rel 4.215e-01  14403s
+mxfp4                    seed 1  ok        train 1.6419  val 2.0393  cos 0.913021  gain 0.7082  rel 4.322e-01  14404s
+mxfp4-sr-bwd             seed 2  ok        train 2.5502  val 2.3529  cos 0.804079  gain 0.5264  rel 6.148e-01  267s
+mxfp4-sr-bwd             seed 3  ok        train 2.3277  val 2.5568  cos 0.802237  gain 0.5388  rel 6.129e-01  267s
+mxfp4                    seed 3  ok        train 1.9178  val 2.0698  cos 0.906723  gain 0.7128  rel 4.410e-01  268s
+PROBE2 EXIT 0
