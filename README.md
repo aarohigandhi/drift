@@ -206,7 +206,7 @@ over the run, against 37%.
 java/   io.drift.fmt      minifloat formats, one parameterised implementation
         io.drift.kernel   NumericPolicy, casts and scaling, the dot product
         io.drift.train    the model, a policy-routed forward and backward, the sweep
-        io.drift.tools    oracle table dump, dot-product sweep
+        io.drift.tools    oracle table dump, dot-product sweeps (synthetic and real tensors)
 python/ drift/minifloat   exact rational reference for every format
         verify_oracle.py  cross-checks Java against it
         analyze.py        tables and figures
@@ -225,6 +225,12 @@ applying one is itself a rounding, and that rounding is part of the measurement.
 Only the three linear layers run under a policy. Embeddings, biases, tanh,
 softmax and the loss stay in double, which is the usual scope of an FP8 recipe.
 Master weights and Adam state are stored as fp32.
+
+A run can carry probes: other policies whose gradient is computed at every
+measurement, from the run's weights and batch, and logged next to the run's own.
+They never touch the update. That's what separates "this arithmetic is biased"
+from "this arithmetic led training somewhere else", which comparing two runs
+can't do. A test checks that a run with probes is identical to one without.
 
 ## What's checked
 
@@ -265,6 +271,10 @@ cd ../java && ./gradlew dotSweep --args="../results/dot_sweep.csv"
 ./gradlew train --args="--seeds 1,2,3 --steps 2000"
 ./gradlew train --args="--policies mxfp4-sr-fwd,mxfp4-sr-bwd --seeds 1,2,3 --steps 2000 --summary summary-sr-split.csv"
 ./gradlew train --args="--out ../results/runs-wide --ctx 32 --emb 64 --hidden 64 --steps 1000 --seeds 1,2,3 --policies fp32,acc-fp16,acc-fp16-pairwise,acc-bf16,acc-bf16-pairwise,acc-bf16-blocked"
+./gradlew train --args="--policies mxfp4,mxfp4-sr-bwd --probes mxfp4,mxfp4-sr-bwd --seeds 1,2,3 --steps 2000 --out ../results/runs-probe"
+./gradlew train --args="--out ../results/runs-real --policies fp32 --seeds 1 --steps 1000 --ctx 32 --emb 64 --hidden 64 --save-weights true"
+./gradlew realDotSweep --args="--init 1 --stage init"
+./gradlew realDotSweep --args="--weights ../results/runs-real/fp32-s1.weights --stage trained"
 cd ../python && python analyze.py
 ```
 

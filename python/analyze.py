@@ -301,10 +301,37 @@ def layer_table(runs, policies, name):
     (RESULTS / name).write_text("\n".join(layer_lines) + "\n", encoding="utf-8", newline="\n")
 
 
+def real_dot():
+    """RealDotSweep output as one row per policy, one column pair per stage."""
+    path = RESULTS / "real_dot.csv"
+    if not path.exists():
+        return
+    rows = list(csv.DictReader(path.open()))
+    stages = []
+    for r in rows:
+        if r["stage"] not in stages:
+            stages.append(r["stage"])
+    policies = []
+    for r in rows:
+        if r["policy"] not in policies:
+            policies.append(r["policy"])
+    cell = {(r["stage"], r["policy"]): r for r in rows}
+    header = "| policy | " + " | ".join(f"{s}: median rel. error | {s}: rms ratio" for s in stages) + " |"
+    lines = [header, "|---|" + "---:|---:|" * len(stages)]
+    for p in policies:
+        cells = []
+        for s in stages:
+            r = cell.get((s, p))
+            cells += [f"{float(r['median_rel_error']):.2e}", f"{float(r['rms_error_ratio']):.2e}"] if r else ["—", "—"]
+        lines.append(f"| {p} | " + " | ".join(cells) + " |")
+    (RESULTS / "real_dot_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     IMG.mkdir(parents=True, exist_ok=True)
     dot_sweep()
+    real_dot()
     order = [
         "exact", "fp32", "bf16", "fp8", "fp8-delayed", "fp8-e4m3-grads", "fp8-mx", "fp8-mx-headroom",
         "fp8-reversed", "fp8-acc-fp16", "fp8-acc-fp16-pairwise", "fp8-acc-bf16",
@@ -327,7 +354,7 @@ def main():
     if (RESULTS / "runs-wide").exists():
         training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)
     for name in ("dot_table.md", "train_table.md", "layer_table.md", "sr_split_table.md",
-                 "wide_table.md", "wide_layers.md", "probe_table.md"):
+                 "wide_table.md", "wide_layers.md", "probe_table.md", "real_dot_table.md"):
         p = RESULTS / name
         if p.exists():
             print(f"== {name}\n{p.read_text(encoding="utf-8")}")
