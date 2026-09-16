@@ -49,6 +49,16 @@ public final class Trainer {
         public String[] probes = {};
         /** Write the final weights next to the run's log, for tools that need real tensors. */
         public boolean saveWeights = false;
+
+        /** Which model to train: "mlp" is the only one so far. */
+        public String model = "mlp";
+
+        Model buildModel(int vocab, long seed) {
+            return switch (model) {
+                case "mlp" -> new Net(vocab, ctx, emb, hidden, seed);
+                default -> throw new IllegalArgumentException("unknown model " + model);
+            };
+        }
     }
 
     private final Config cfg;
@@ -66,19 +76,19 @@ public final class Trainer {
 
     public Summary run(NumericPolicy policy, long seed, Path out) throws IOException {
         long started = System.nanoTime();
-        Net net = new Net(corpus.vocab, cfg.ctx, cfg.emb, cfg.hidden, 1000 + seed);
+        Model net = cfg.buildModel(corpus.vocab, 1000 + seed);
         if (policy.masterFp32) {
             net.roundToFp32();
         }
 
-        Pass pass = new Pass(policy, net, cfg.batch, 0xC0FFEEL * (seed + 1));
-        Pass exact = new Pass(NumericPolicy.exact(), net, cfg.batch, 1);
+        ModelPass pass = net.pass(policy, cfg.batch, 0xC0FFEEL * (seed + 1));
+        ModelPass exact = net.pass(NumericPolicy.exact(), cfg.batch, 1);
         Grads g = new Grads(net);
         Grads ge = new Grads(net);
 
-        Pass[] probes = new Pass[cfg.probes.length];
+        ModelPass[] probes = new ModelPass[cfg.probes.length];
         for (int i = 0; i < probes.length; i++) {
-            probes[i] = new Pass(Policies.byName(cfg.probes[i]), net, cfg.batch, 0xBEEFL * (seed + 1) + i);
+            probes[i] = net.pass(Policies.byName(cfg.probes[i]), cfg.batch, 0xBEEFL * (seed + 1) + i);
         }
         Grads gp = probes.length > 0 ? new Grads(net) : null;
 
@@ -92,7 +102,7 @@ public final class Trainer {
         }
 
         int[] ctxBuf = new int[cfg.batch * cfg.ctx];
-        int[] tgtBuf = new int[cfg.batch];
+        int[] tgtBuf = new int[cfg.batch * net.targetsPerWindow()];
         Random batches = new Random(seed);   // same batch stream for every policy
 
         double initialLoss = Math.log(corpus.vocab);
@@ -109,13 +119,13 @@ public final class Trainer {
         try (BufferedWriter w = Files.newBufferedWriter(out)) {
             w.write(String.format(Locale.ROOT,
                     "{\"kind\":\"config\",\"policy\":\"%s\",\"seed\":%d,\"describe\":\"%s\","
-                            + "\"params\":%d,\"vocab\":%d,\"ctx\":%d,\"emb\":%d,\"hidden\":%d,"
+                            + "\"model\":\"%s\",\"params\":%d,\"vocab\":%d,\"ctx\":%d,\"emb\":%d,\"hidden\":%d,"
                             + "\"batch\":%d,\"steps\":%d,\"lr\":%s}%n",
-                    policy.name, seed, policy.describe(), net.paramCount(), corpus.vocab,
+                    policy.name, seed, policy.describe(), cfg.model, net.paramCount(), corpus.vocab,
                     cfg.ctx, cfg.emb, cfg.hidden, cfg.batch, cfg.steps, cfg.lr));
 
             for (step = 1; step <= cfg.steps; step++) {
-                sample(corpus.train, batches, ctxBuf, tgtBuf);
+                sample(corpus.train, batches, ctxBuf, tgtBuf, net.targetsPerWindow());
                 double loss = pass.lossAndGrads(ctxBuf, tgtBuf, g);
                 lastLoss = loss;
 
@@ -128,7 +138,7 @@ public final class Trainer {
 
                 if (step % cfg.measureEvery == 0 || step == 1) {
                     double lossExact = exact.lossAndGrads(ctxBuf, tgtBuf, ge);
-                    String layers = compareLayers(g, ge);
+                    String layers = compareLayers(net, g, ge);
                     double[] all = compare(grads, ge.tensors());
                     cosSum += all[0];
                     gainSum += all[1];
@@ -143,15 +153,15 @@ public final class Trainer {
                         }
                         probeJson.append(String.format(Locale.ROOT,
                                 "\"%s\":{\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s}}",
-                                probes[i].p.name, json(c[0]), json(c[1]), json(c[2]), compareLayers(gp, ge)));
+                                probes[i].policy().name, json(c[0]), json(c[1]), json(c[2]), compareLayers(net, gp, ge)));
                     }
+                    long[] cc = pass.clampCounts();
                     w.write(String.format(Locale.ROOT,
                             "{\"kind\":\"measure\",\"step\":%d,\"loss\":%s,\"loss_exact\":%s,"
                                     + "\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s},"
                                     + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s,\"probes\":{%s}}%n",
                             step, json(loss), json(lossExact), json(all[0]), json(all[1]), json(all[2]),
-                            layers, json(frac(pass.clampedX, pass.castX)),
-                            json(frac(pass.clampedW, pass.castW)), json(frac(pass.clampedG, pass.castG)),
+                            layers, json(frac(cc[0], cc[1])), json(frac(cc[2], cc[3])), json(frac(cc[4], cc[5])),
                             probeJson));
                 }
 
@@ -162,7 +172,7 @@ public final class Trainer {
                             "{\"kind\":\"train\",\"step\":%d,\"loss\":%s}%n", step, json(loss)));
                 }
                 if (step % cfg.evalEvery == 0 || step == cfg.steps) {
-                    lastVal = evaluate(exact);
+                    lastVal = evaluate(exact, net.targetsPerWindow());
                     w.write(String.format(Locale.ROOT,
                             "{\"kind\":\"eval\",\"step\":%d,\"val_loss\":%s}%n", step, json(lastVal)));
                 }
@@ -189,23 +199,33 @@ public final class Trainer {
      * Held-out loss, always computed exactly, so it measures the weights a policy
      * produced rather than the policy's arithmetic at evaluation time.
      */
-    private double evaluate(Pass exact) {
+    private double evaluate(ModelPass exact, int targetsPerWindow) {
         Random r = new Random(424242);   // same held-out windows every time
         int[] ctxBuf = new int[cfg.batch * cfg.ctx];
-        int[] tgtBuf = new int[cfg.batch];
+        int[] tgtBuf = new int[cfg.batch * targetsPerWindow];
         double sum = 0;
         for (int b = 0; b < cfg.evalBatches; b++) {
-            sample(corpus.val, r, ctxBuf, tgtBuf);
+            sample(corpus.val, r, ctxBuf, tgtBuf, targetsPerWindow);
             sum += exact.forward(ctxBuf, tgtBuf);
         }
         return sum / cfg.evalBatches;
     }
 
-    private void sample(int[] tokens, Random r, int[] ctxBuf, int[] tgtBuf) {
+    /**
+     * One random window per batch row. With one target per window the target is the
+     * character after it; with one per position, each position predicts the character
+     * after it. The random draws are identical either way, so adding the second case
+     * leaves the MLP's batch stream unchanged.
+     */
+    private void sample(int[] tokens, Random r, int[] ctxBuf, int[] tgtBuf, int targetsPerWindow) {
         for (int i = 0; i < cfg.batch; i++) {
             int start = r.nextInt(tokens.length - cfg.ctx - 1);
             System.arraycopy(tokens, start, ctxBuf, i * cfg.ctx, cfg.ctx);
-            tgtBuf[i] = tokens[start + cfg.ctx];
+            if (targetsPerWindow == 1) {
+                tgtBuf[i] = tokens[start + cfg.ctx];
+            } else {
+                System.arraycopy(tokens, start + 1, tgtBuf, i * cfg.ctx, cfg.ctx);
+            }
         }
     }
 
@@ -258,13 +278,12 @@ public final class Trainer {
         return new double[]{dot / Math.sqrt(gg * ee), dot / ee, Math.sqrt(dd / ee)};
     }
 
-    private static String compareLayers(Grads g, Grads ge) {
-        String[] names = {"w1", "w2", "w3"};
-        double[][] a = {g.w1, g.w2, g.w3};
-        double[][] b = {ge.w1, ge.w2, ge.w3};
+    private static String compareLayers(Model model, Grads g, Grads ge) {
+        String[] names = model.matmulNames();
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < names.length; i++) {
-            double[] c = compare(new double[][]{a[i]}, new double[][]{b[i]});
+            int t = model.indexOf(names[i]);
+            double[] c = compare(new double[][]{g.get(t)}, new double[][]{ge.get(t)});
             if (i > 0) {
                 sb.append(',');
             }

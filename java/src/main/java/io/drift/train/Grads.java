@@ -1,32 +1,28 @@
 package io.drift.train;
 
-/** Gradient buffers with the same shapes and order as {@link Net#tensors()}. */
+/** Gradient buffers with the same shapes and order as {@link Model#tensors()}. */
 public final class Grads {
 
-    public final double[] embed;
-    public final double[] w1;
-    public final double[] b1;
-    public final double[] w2;
-    public final double[] b2;
-    public final double[] w3;
-    public final double[] b3;
+    private final double[][] tensors;
 
-    public Grads(Net n) {
-        embed = new double[n.embed.length];
-        w1 = new double[n.w1.length];
-        b1 = new double[n.b1.length];
-        w2 = new double[n.w2.length];
-        b2 = new double[n.b2.length];
-        w3 = new double[n.w3.length];
-        b3 = new double[n.b3.length];
+    public Grads(Model m) {
+        double[][] params = m.tensors();
+        tensors = new double[params.length][];
+        for (int i = 0; i < params.length; i++) {
+            tensors[i] = new double[params[i].length];
+        }
     }
 
     public double[][] tensors() {
-        return new double[][]{embed, w1, b1, w2, b2, w3, b3};
+        return tensors;
+    }
+
+    public double[] get(int index) {
+        return tensors[index];
     }
 
     public void zero() {
-        for (double[] t : tensors()) {
+        for (double[] t : tensors) {
             java.util.Arrays.fill(t, 0.0);
         }
     }

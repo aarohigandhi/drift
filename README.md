@@ -16,6 +16,8 @@ rounding, scaling, accumulator width and summation order. Then it trains a model
 on real text under each setting, and at every measurement step it recomputes the
 gradient exactly, so a difference between runs can be traced to the one setting that changed.
 
+The story of the project, and what it found, is in [docs/writeup.md](docs/writeup.md).
+
 ## Results
 
 ### Summation order matters only when the accumulator is narrow

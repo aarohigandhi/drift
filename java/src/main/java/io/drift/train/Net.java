@@ -13,7 +13,7 @@ import java.util.Random;
  * here is what low precision does to matrix multiplication inside a real training
  * loop on real text, not what it does to attention.
  */
-public final class Net {
+public final class Net implements Model {
 
     public final int vocab;
     public final int ctx;
@@ -58,7 +58,38 @@ public final class Net {
 
     public static final String[] TENSOR_NAMES = {"embed", "w1", "b1", "w2", "b2", "w3", "b3"};
 
+    @Override
+    public String[] tensorNames() {
+        return TENSOR_NAMES;
+    }
+
+    @Override
+    public String[] matmulNames() {
+        return new String[]{"w1", "w2", "w3"};
+    }
+
+    @Override
+    public int vocab() {
+        return vocab;
+    }
+
+    @Override
+    public int contextLength() {
+        return ctx;
+    }
+
+    @Override
+    public int targetsPerWindow() {
+        return 1;
+    }
+
+    @Override
+    public ModelPass pass(io.drift.kernel.NumericPolicy p, int batch, long rngSeed) {
+        return new Pass(p, this, batch, rngSeed);
+    }
+
     /** Round every parameter to FP32, which is what a run with FP32 master weights stores. */
+    @Override
     public void roundToFp32() {
         for (double[] t : tensors()) {
             for (int i = 0; i < t.length; i++) {
@@ -67,6 +98,7 @@ public final class Net {
         }
     }
 
+    @Override
     public int paramCount() {
         int n = 0;
         for (double[] t : tensors()) {
@@ -76,6 +108,7 @@ public final class Net {
     }
 
     /** Dimensions, then every tensor, as raw doubles. Exact, so a reload is bit-identical. */
+    @Override
     public void save(java.nio.file.Path path) throws java.io.IOException {
         try (java.io.DataOutputStream out = new java.io.DataOutputStream(
                 new java.io.BufferedOutputStream(java.nio.file.Files.newOutputStream(path)))) {

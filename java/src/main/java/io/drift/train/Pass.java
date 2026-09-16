@@ -23,7 +23,7 @@ import io.drift.kernel.Quant;
  * <p>A pass holds state across steps, because delayed scaling needs an amax history,
  * so the policy pass and the exact reference pass are separate objects.
  */
-public final class Pass {
+public final class Pass implements ModelPass {
 
     private static final int LAYERS = 3;
     private static final int T_X = 0;
@@ -89,12 +89,23 @@ public final class Pass {
         historyCount = new int[LAYERS][3];
     }
 
+    @Override
+    public NumericPolicy policy() {
+        return p;
+    }
+
+    @Override
+    public long[] clampCounts() {
+        return new long[]{clampedX, castX, clampedW, castW, clampedG, castG};
+    }
+
     /**
      * Mean cross-entropy over the batch, with gradients written into {@code g}.
      *
      * @param contexts {@code batch * ctx} token ids
      * @param targets  {@code batch} token ids
      */
+    @Override
     public double lossAndGrads(int[] contexts, int[] targets, Grads g) {
         double loss = forward(contexts, targets);
         backward(contexts, g);
@@ -102,6 +113,7 @@ public final class Pass {
     }
 
     /** Mean cross-entropy only. Also leaves the softmax gradient ready for backward. */
+    @Override
     public double forward(int[] contexts, int[] targets) {
         Net n = net;
         int e = n.emb;
@@ -148,19 +160,20 @@ public final class Pass {
 
         g.zero();
 
-        linearBackward(2, dLogits, h, n.vocab, dh2, g.w3, g.b3);
+        linearBackward(2, dLogits, h, n.vocab, dh2, g.get(5), g.get(6));
         tanhBackward(h2, dh2);
-        linearBackward(1, dh2, h, h, dh1, g.w2, g.b2);
+        linearBackward(1, dh2, h, h, dh1, g.get(3), g.get(4));
         tanhBackward(h1, dh1);
-        linearBackward(0, dh1, n.in1, h, dx0, g.w1, g.b1);
+        linearBackward(0, dh1, n.in1, h, dx0, g.get(1), g.get(2));
 
+        double[] embedGrad = g.get(0);
         for (int i = 0; i < batch; i++) {
             for (int c = 0; c < n.ctx; c++) {
                 int tok = contexts[i * n.ctx + c];
                 int src = i * n.in1 + c * e;
                 int dst = tok * e;
                 for (int k = 0; k < e; k++) {
-                    g.embed[dst + k] += dx0[src + k];
+                    embedGrad[dst + k] += dx0[src + k];
                 }
             }
         }
