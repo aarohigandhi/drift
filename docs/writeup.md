@@ -46,6 +46,8 @@ That probe turned up something I didn't expect. At the weights of the standard r
 
 The format is rarely the whole story. The things that actually moved training here were a scaling rule meeting the place activations happen to sit, and the path a run takes rather than the error at any one step. Neither shows up if you only compare final losses.
 
-The limits are real. The models are small, the largest has 148k parameters, and everything runs on a CPU. The models so far have no attention, and attention brings numerics of its own, like products of two activations and a softmax that is sensitive to small errors in its scores. That is what I'm building next.
+The limits are real. The models are small, the largest has 148k parameters, and everything runs on a CPU.
+
+The models so far have no attention, and I want to be clear that nothing here says anything about it. Attention brings arithmetic the models I built simply do not contain. A matrix multiply of a query against a key multiplies two activations together, where every product measured here multiplied an activation by a weight. A softmax then turns those scores into weights that sum to one, which makes it sensitive to small errors in a way a plain layer is not, and its outputs sit just under 1.0, the same place that made the scaling rule bite. So attention is the next piece of work rather than a loose end. It is scheduled, the measurements are the ones already built, and I will report what it says even if it disagrees with everything above.
 
 The code, every result and every retraction are at [github.com/aarohigandhi/drift](https://github.com/aarohigandhi/drift).

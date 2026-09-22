@@ -343,9 +343,12 @@ These results used 3.14.0.
   by nothing 8 seeds can resolve. Longer runs might accumulate an effect that 1,000
   steps don't.
   Transformer widths and training lengths are beyond a CPU sweep.
-- **An MLP, not a transformer.** Attention adds numerics of its own: softmax over
-  long sequences, and products of two activations rather than activation times
-  weight. None of that is measured.
+- **An MLP, not a transformer. No attention result yet.** Attention adds numerics
+  of its own: products of two activations rather than activation times weight, and
+  a softmax whose output is sensitive to small errors in its scores. Nothing here
+  measures any of it, and nothing here should be read as evidence about attention.
+  That work is scheduled next, and this section will carry its result when it
+  exists.
 - **tanh.** The MX clamping in training is so strong partly because tanh outputs
   crowd just below 1.0, the worst place for a shared exponent. Other activations
   crowd less. Softmax probabilities and sigmoid gates also sit just below 1, but
