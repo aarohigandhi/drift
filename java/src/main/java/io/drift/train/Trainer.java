@@ -50,12 +50,13 @@ public final class Trainer {
         /** Write the final weights next to the run's log, for tools that need real tensors. */
         public boolean saveWeights = false;
 
-        /** Which model to train: "mlp" is the only one so far. */
+        /** Which model to train: "mlp" or "attn". */
         public String model = "mlp";
 
         Model buildModel(int vocab, long seed) {
             return switch (model) {
                 case "mlp" -> new Net(vocab, ctx, emb, hidden, seed);
+                case "attn" -> new AttnNet(vocab, ctx, emb, hidden, seed);
                 default -> throw new IllegalArgumentException("unknown model " + model);
             };
         }
