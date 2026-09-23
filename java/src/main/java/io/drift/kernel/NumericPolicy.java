@@ -82,6 +82,18 @@ public final class NumericPolicy {
     public final Rounding accRounding;
     /** Master weights and optimizer state rounded to FP32 after every update. */
     public final boolean masterFp32;
+    /**
+     * Attention only. When false, the operands of the score matmul (query against
+     * key) are not cast, so that matmul runs on full precision inputs while every
+     * ordinary layer stays cast. The accumulator still follows the policy.
+     */
+    public final boolean castScores;
+    /**
+     * Attention only. When false, the operands of the context matmul (softmax
+     * probabilities against values) are not cast. The probabilities are the operand
+     * that crowds just below 1.0, so this separates them from everything else.
+     */
+    public final boolean castProbs;
 
     private NumericPolicy(Builder b) {
         this.name = b.name;
@@ -98,6 +110,8 @@ public final class NumericPolicy {
         this.accBlock = b.accBlock;
         this.accRounding = b.accRounding;
         this.masterFp32 = b.masterFp32;
+        this.castScores = b.castScores;
+        this.castProbs = b.castProbs;
     }
 
     /** Rounding actually used for gradient casts. */
@@ -134,6 +148,8 @@ public final class NumericPolicy {
         b.accBlock = accBlock;
         b.accRounding = accRounding;
         b.masterFp32 = masterFp32;
+        b.castScores = castScores;
+        b.castProbs = castProbs;
         return b;
     }
 
@@ -151,7 +167,9 @@ public final class NumericPolicy {
                 + " order=" + order
                 + " accBlock=" + accBlock
                 + " accRounding=" + accRounding
-                + " masterFp32=" + masterFp32;
+                + " masterFp32=" + masterFp32
+                + " castScores=" + castScores
+                + " castProbs=" + castProbs;
     }
 
     @Override
@@ -174,6 +192,8 @@ public final class NumericPolicy {
         private int accBlock = 32;
         private Rounding accRounding = Rounding.NEAREST_EVEN;
         private boolean masterFp32 = true;
+        private boolean castScores = true;
+        private boolean castProbs = true;
 
         private Builder(String name) {
             this.name = name;
@@ -192,6 +212,8 @@ public final class NumericPolicy {
         public Builder accBlock(int n) { this.accBlock = n; return this; }
         public Builder accRounding(Rounding r) { this.accRounding = r; return this; }
         public Builder masterFp32(boolean b) { this.masterFp32 = b; return this; }
+        public Builder castScores(boolean b) { this.castScores = b; return this; }
+        public Builder castProbs(boolean b) { this.castProbs = b; return this; }
 
         public NumericPolicy build() {
             return new NumericPolicy(this);

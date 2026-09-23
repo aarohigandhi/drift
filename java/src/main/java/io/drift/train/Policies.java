@@ -69,6 +69,16 @@ public final class Policies {
         m.put("mxfp4-sr-bwd", mxfp4.toBuilder("mxfp4-sr-bwd")
                 .inputRounding(Rounding.NEAREST_EVEN).gradRounding(Rounding.STOCHASTIC).build());
 
+        // Attention only: hold the score matmul or the context matmul in full precision
+        // while every ordinary layer stays cast, so attention's own numerics separate.
+        NumericPolicy fp8mx = m.get("fp8-mx");
+        m.put("fp8-mx-precise-probs", fp8mx.toBuilder("fp8-mx-precise-probs").castProbs(false).build());
+        m.put("fp8-mx-precise-scores", fp8mx.toBuilder("fp8-mx-precise-scores").castScores(false).build());
+        m.put("mxfp4-precise-probs", mxfp4.toBuilder("mxfp4-precise-probs").castProbs(false).build());
+        m.put("mxfp4-precise-scores", mxfp4.toBuilder("mxfp4-precise-scores").castScores(false).build());
+        m.put("mxfp4-precise-attn", mxfp4.toBuilder("mxfp4-precise-attn")
+                .castProbs(false).castScores(false).build());
+
         // Accumulation alone, nothing cast, for the wide model. Children of fp32, so any
         // gap is the accumulator and nothing else.
         m.put("acc-fp16", fp32.toBuilder("acc-fp16").acc(Acc.FP16).build());
@@ -84,6 +94,8 @@ public final class Policies {
     /** Policies added after the main sweep, for experiments that are run by name. */
     private static final Set<String> FOLLOW_UP = Set.of(
             "mxfp4-sr-fwd", "mxfp4-sr-bwd",
+            "fp8-mx-precise-probs", "fp8-mx-precise-scores",
+            "mxfp4-precise-probs", "mxfp4-precise-scores", "mxfp4-precise-attn",
             "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked");
 
     /** The 18 policies of the main sweep, in table order. */

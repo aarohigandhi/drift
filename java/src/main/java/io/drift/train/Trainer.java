@@ -160,10 +160,11 @@ public final class Trainer {
                     w.write(String.format(Locale.ROOT,
                             "{\"kind\":\"measure\",\"step\":%d,\"loss\":%s,\"loss_exact\":%s,"
                                     + "\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s},"
-                                    + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s,\"probes\":{%s}}%n",
+                                    + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s,"
+                                    + "\"clamp_prob\":%s,\"probes\":{%s}}%n",
                             step, json(loss), json(lossExact), json(all[0]), json(all[1]), json(all[2]),
                             layers, json(frac(cc[0], cc[1])), json(frac(cc[2], cc[3])), json(frac(cc[4], cc[5])),
-                            probeJson));
+                            json(cc.length > 6 ? frac(cc[6], cc[7]) : 0.0), probeJson));
                 }
 
                 adam(params, grads, m, v, step, policy.masterFp32);

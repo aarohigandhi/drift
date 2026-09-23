@@ -91,6 +91,9 @@ public final class AttnPass implements ModelPass {
     public long castX;
     public long castW;
     public long castG;
+    /** Attention probabilities specifically, since they are the operand under suspicion. */
+    public long clampedProb;
+    public long castProb;
 
     public AttnPass(NumericPolicy p, AttnNet net, int batch, long rngSeed) {
         this.p = p;
@@ -160,7 +163,7 @@ public final class AttnPass implements ModelPass {
 
     @Override
     public long[] clampCounts() {
-        return new long[]{clampedX, castX, clampedW, castW, clampedG, castG};
+        return new long[]{clampedX, castX, clampedW, castW, clampedG, castG, clampedProb, castProb};
     }
 
     /**
@@ -200,8 +203,13 @@ public final class AttnPass implements ModelPass {
         linear(qx, qWv, null, rows, d, d, val);
 
         // Scores: a product of two activations, which an MLP never has.
-        castAct(q, qq, rows * d);
-        castAct(k, qk, rows * d);
+        if (p.castScores) {
+            castAct(q, qq, rows * d);
+            castAct(k, qk, rows * d);
+        } else {
+            System.arraycopy(q, 0, qq, 0, rows * d);
+            System.arraycopy(k, 0, qk, 0, rows * d);
+        }
         for (int b = 0; b < batch; b++) {
             for (int i = 0; i < t; i++) {
                 int base = b * t * t + i * t;
@@ -230,8 +238,13 @@ public final class AttnPass implements ModelPass {
         }
 
         // Context: probabilities against values, again two activations.
-        castAct(prob, qprob, batch * t * t);
-        castAct(val, qv, rows * d);
+        if (p.castProbs) {
+            castProbabilities(prob, qprob, batch * t * t);
+            castAct(val, qv, rows * d);
+        } else {
+            System.arraycopy(prob, 0, qprob, 0, batch * t * t);
+            System.arraycopy(val, 0, qv, 0, rows * d);
+        }
         for (int b = 0; b < batch; b++) {
             for (int i = 0; i < t; i++) {
                 for (int c = 0; c < d; c++) {
@@ -319,7 +332,11 @@ public final class AttnPass implements ModelPass {
         dWeight(qgRows, qctxv, rows, d, d, g.get(5));
 
         // Context matmul: probabilities and values.
-        castGrad(dCtxv, qgWide, rows * d);
+        if (p.castProbs) {
+            castGrad(dCtxv, qgWide, rows * d);
+        } else {
+            System.arraycopy(dCtxv, 0, qgWide, 0, rows * d);
+        }
         java.util.Arrays.fill(dv, 0.0);
         for (int b = 0; b < batch; b++) {
             for (int i = 0; i < t; i++) {
@@ -357,7 +374,11 @@ public final class AttnPass implements ModelPass {
         }
 
         // Score matmul: queries against keys.
-        castGrad(dScore, qgScore, batch * t * t);
+        if (p.castScores) {
+            castGrad(dScore, qgScore, batch * t * t);
+        } else {
+            System.arraycopy(dScore, 0, qgScore, 0, batch * t * t);
+        }
         for (int b = 0; b < batch; b++) {
             for (int i = 0; i < t; i++) {
                 for (int c = 0; c < d; c++) {
@@ -445,6 +466,18 @@ public final class AttnPass implements ModelPass {
     }
 
     // --------------------------------------------------------------- casts
+
+    /** Like an activation cast, but counted separately so the rate can be reported. */
+    private void castProbabilities(double[] src, double[] dst, int n) {
+        MiniFloat f = p.inputFormat;
+        int clamped = cast(src, dst, n, f, p.inputRounding);
+        clampedX += clamped;
+        clampedProb += clamped;
+        if (f != null) {
+            castX += n;
+            castProb += n;
+        }
+    }
 
     private void castAct(double[] src, double[] dst, int n) {
         MiniFloat f = p.inputFormat;

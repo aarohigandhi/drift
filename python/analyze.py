@@ -281,10 +281,24 @@ def probes(runs_dir, table_name="probe_table.md", figure_name="probe.png"):
     plt.close(fig)
 
 
+def layer_names(runs):
+    """Layer names as the runs recorded them, so this works for any model."""
+    for seeds in runs.values():
+        for r in seeds.values():
+            for m in r["measures"]:
+                if m.get("layers"):
+                    return list(m["layers"])
+    return []
+
+
 def layer_table(runs, policies, name):
     """Per-layer gain and relative error, to see where an effect enters."""
-    layer_lines = ["| policy | w1 gain | w2 gain | w3 gain | w1 rel. error | w2 rel. error | w3 rel. error |",
-                   "|---|---:|---:|---:|---:|---:|---:|"]
+    names = layer_names(runs)
+    if not names:
+        return
+    layer_lines = ["| policy | " + " | ".join(f"{n} gain" for n in names)
+                   + " | " + " | ".join(f"{n} rel. error" for n in names) + " |",
+                   "|---" + "|---:" * (2 * len(names)) + "|"]
     for policy in policies:
         if policy not in runs:
             continue
@@ -298,8 +312,8 @@ def layer_table(runs, policies, name):
                     if v["rel"] is not None:
                         rel[layer].append(v["rel"])
         layer_lines.append(f"| `{policy}` | " + " | ".join(
-            f"{statistics.mean(gain[l]):.3f}" for l in ("w1", "w2", "w3")) + " | " + " | ".join(
-            f"{statistics.mean(rel[l]):.3f}" for l in ("w1", "w2", "w3")) + " |")
+            f"{statistics.mean(gain[l]):.3f}" if gain[l] else "—" for l in names) + " | " + " | ".join(
+            f"{statistics.mean(rel[l]):.3f}" if rel[l] else "—" for l in names) + " |")
     (RESULTS / name).write_text("\n".join(layer_lines) + "\n", encoding="utf-8", newline="\n")
 
 
@@ -329,6 +343,26 @@ def real_dot():
     (RESULTS / "real_dot_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
+def clamp_table(runs_dir, policies, name):
+    """
+    How much of each tensor kind hits the format maximum, averaged over the run.
+    The probability column is the one attention adds: softmax outputs crowd just
+    below 1.0, which is where a shared exponent clamps.
+    """
+    runs = load_runs(runs_dir)
+    lines = ["| policy | activations clamped | weights clamped | gradients clamped | attention probs clamped |",
+             "|---|---:|---:|---:|---:|"]
+    for policy in policies:
+        if policy not in runs:
+            continue
+        cols = []
+        for key in ("clamp_x", "clamp_w", "clamp_g", "clamp_prob"):
+            vals = [m[key] for r in runs[policy].values() for m in r["measures"] if m.get(key) is not None]
+            cols.append(f"{statistics.mean(vals) * 100:.1f}%" if vals else "—")
+        lines.append(f"| `{policy}` | " + " | ".join(cols) + " |")
+    (RESULTS / name).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     IMG.mkdir(parents=True, exist_ok=True)
@@ -354,11 +388,18 @@ def main():
         probes(RESULTS / "runs-probe")
     if (RESULTS / "runs-probe-headroom").exists():
         probes(RESULTS / "runs-probe-headroom", "probe_headroom_table.md", None)
+    attn = ["fp32", "bf16", "fp8", "fp8-mx", "fp8-mx-precise-probs", "fp8-mx-precise-scores",
+            "fp8-mx-headroom", "mxfp4", "mxfp4-precise-probs", "mxfp4-precise-attn",
+            "mxfp4-headroom", "mxfp4-sr-bwd"]
+    if (RESULTS / "runs-attn").exists():
+        training(attn, RESULTS / "runs-attn", "attn_table.md", attn, "attn_layers.md", gain_figure=False)
+        clamp_table(RESULTS / "runs-attn", attn, "attn_clamp.md")
     wide = ["fp32", "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked"]
     if (RESULTS / "runs-wide").exists():
         training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)
     for name in ("dot_table.md", "train_table.md", "layer_table.md", "sr_split_table.md",
-                 "wide_table.md", "wide_layers.md", "probe_table.md", "probe_headroom_table.md", "real_dot_table.md"):
+                 "wide_table.md", "wide_layers.md", "probe_table.md", "probe_headroom_table.md", "real_dot_table.md",
+                 "attn_table.md", "attn_layers.md", "attn_clamp.md"):
         p = RESULTS / name
         if p.exists():
             print(f"== {name}\n{p.read_text(encoding="utf-8")}")

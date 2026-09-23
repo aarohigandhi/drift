@@ -185,6 +185,80 @@ An earlier version of this section had 3 seeds, where 13 of 15 comparisons came
 out worse, and said a 16-bit accumulator "costs something". The extra seeds don't
 back that up.
 
+### Attention breaks earlier than the MLP, and not for the reason expected
+
+One block of causal single head attention followed by an MLP, both with residuals,
+predicting the next character at every position. 47k parameters at context 16 and
+width 32, 2,000 steps, 3 seeds. Two matmuls here have no equivalent in the MLP:
+scores, a query against a key, and context, softmax probabilities against values.
+Both multiply two activations, so cast error enters on both sides.
+
+| policy | diverged | held-out loss, mean (range) | vs fp32, paired | grad cos | grad gain | grad rel. error |
+|---|---:|---|---:|---:|---:|---:|
+| `fp32` | 0/3 | 2.116 (2.110–2.120) | +0.000 | 1.0000 | 1.000 | 0.000 |
+| `bf16` | 0/3 | 2.116 (2.112–2.121) | -0.000 | 0.9998 | 1.000 | 0.019 |
+| `fp8` | 0/3 | 2.127 (2.126–2.130) | +0.012 | 0.9877 | 0.987 | 0.155 |
+| `fp8-mx` | 3/3 | — | — | 0.9709 | 0.893 | 0.217 |
+| `fp8-mx-precise-probs` | 3/3 | — | — | 0.9765 | 0.908 | 0.205 |
+| `fp8-mx-precise-scores` | 3/3 | — | — | 0.9746 | 0.906 | 0.208 |
+| `fp8-mx-headroom` | 0/3 | 2.118 (2.115–2.124) | +0.003 | 0.9908 | 0.991 | 0.134 |
+| `mxfp4` | 0/3 | 2.475 (2.388–2.601) | +0.360 | 0.6249 | 0.397 | 0.780 |
+| `mxfp4-precise-probs` | 0/3 | 2.393 (2.378–2.414) | +0.277 | 0.6442 | 0.425 | 0.763 |
+| `mxfp4-precise-attn` | 0/3 | 2.378 (2.320–2.451) | +0.262 | 0.6497 | 0.447 | 0.764 |
+| `mxfp4-headroom` | 3/3 | — | — | 0.6752 | 0.606 | 0.673 |
+| `mxfp4-sr-bwd` | 3/3 | — | — | 0.7412 | 0.431 | 0.667 |
+
+`fp8-mx` trained on the MLP, 0.018 above fp32 with gradients 10% short. On
+attention the same policy **diverges on every seed**, at steps 446, 453 and 497.
+One bit of exponent headroom still fixes it: `fp8-mx-headroom` trains to +0.003.
+So the MX shared exponent rule is the difference between a working FP8 run and a
+dead one, and attention is where it stops being survivable.
+
+**The prediction was wrong.** Softmax probabilities sit just under 1.0, so the
+expectation was that they clamp harder than tanh did and explain the divergence.
+They clamp far less:
+
+| policy | activations clamped | weights clamped | gradients clamped | attention probs clamped |
+|---|---:|---:|---:|---:|
+| `fp32` | 0.0% | 0.0% | 0.0% | 0.0% |
+| `bf16` | 0.0% | 0.0% | 0.0% | 0.0% |
+| `fp8` | 0.0% | 0.0% | 0.0% | 0.0% |
+| `fp8-mx` | 0.9% | 0.8% | 0.9% | 1.9% |
+| `fp8-mx-precise-probs` | 0.8% | 0.8% | 0.9% | 0.0% |
+| `fp8-mx-precise-scores` | 0.9% | 0.8% | 0.9% | 1.9% |
+| `fp8-mx-headroom` | 0.0% | 0.0% | 0.0% | 0.0% |
+| `mxfp4` | 2.6% | 2.8% | 2.2% | 4.1% |
+| `mxfp4-precise-probs` | 2.6% | 2.8% | 2.2% | 0.0% |
+| `mxfp4-precise-attn` | 2.6% | 2.8% | 2.3% | 0.0% |
+| `mxfp4-headroom` | 0.0% | 0.0% | 0.0% | 0.0% |
+| `mxfp4-sr-bwd` | 2.8% | 2.7% | 2.5% | 9.2% |
+
+1.9% of attention probabilities clamp under `fp8-mx`, against 27–30% of tanh
+activations in the MLP. A tenth of the clamping, and the run dies instead of
+surviving. Two runs that hold an attention matmul in full precision while
+everything else stays cast settle it: `fp8-mx-precise-probs` and
+`fp8-mx-precise-scores` diverge too, at steps 439 to 484, indistinguishable from
+the unmodified policy. Whatever kills attention under MX FP8 is not the clamping
+of the attention operands.
+
+What does move is the gradient, and where it enters. Per layer, the shrinkage is
+worst at the query, key and value projections (gain 0.826 to 0.841) and mildest at
+the output (0.890), which is the opposite of the MLP, where shrinkage grew with
+depth. Full detail in [`results/attn_layers.md`](results/attn_layers.md).
+
+At 4 bits, attention is simply worse: `mxfp4` costs +0.360 here against +0.102 on
+the MLP, with gradients at 40% of their true length against 71%. Here the
+attention matmuls do carry part of it. Keeping both precise (`mxfp4-precise-attn`)
+recovers about a quarter of the loss gap, +0.262, and lifts the gain to 0.447.
+Two policies that survived on the MLP diverge here: `mxfp4-headroom` at step 79
+and backward stochastic rounding at step 161.
+
+The honest summary is that attention is more fragile under every low precision
+setting tried, that one bit of MX headroom is what keeps FP8 alive, and that the
+mechanism behind the FP8 divergence is not yet isolated. It is not the clamp rate
+of the scores or the probabilities, because holding either in full precision
+changes nothing.
+
 ### Where the stochastic rounding damage comes from
 
 `mxfp4-sr` rounds both the forward casts (weights and activations) and the
@@ -343,12 +417,14 @@ These results used 3.14.0.
   by nothing 8 seeds can resolve. Longer runs might accumulate an effect that 1,000
   steps don't.
   Transformer widths and training lengths are beyond a CPU sweep.
-- **An MLP, not a transformer. No attention result yet.** Attention adds numerics
-  of its own: products of two activations rather than activation times weight, and
-  a softmax whose output is sensitive to small errors in its scores. Nothing here
-  measures any of it, and nothing here should be read as evidence about attention.
-  That work is scheduled next, and this section will carry its result when it
-  exists.
+- **One attention block, one head, 16 characters of context.** The attention
+  result above is a real measurement, but at this size. No layer normalisation,
+  which real transformers have and which changes where values sit and therefore
+  what clamps. Longer contexts make the softmax rows longer and flatter, which
+  would likely change the clamp rate.
+- **The FP8 divergence on attention is not explained.** It reproduces on every
+  seed at a consistent step, and the two obvious suspects are ruled out, but the
+  cause is still open.
 - **tanh.** The MX clamping in training is so strong partly because tanh outputs
   crowd just below 1.0, the worst place for a shared exponent. Other activations
   crowd less. Softmax probabilities and sigmoid gates also sit just below 1, but
