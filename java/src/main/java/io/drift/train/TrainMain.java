@@ -52,6 +52,7 @@ public final class TrainMain {
                 case "--probes" -> cfg.probes = v.split(",");
                 case "--save-weights" -> cfg.saveWeights = Boolean.parseBoolean(v);
                 case "--model" -> cfg.model = v;
+                case "--measure-every" -> cfg.measureEvery = Integer.parseInt(v);
                 default -> throw new IllegalArgumentException("unknown flag " + args[i]);
             }
         }

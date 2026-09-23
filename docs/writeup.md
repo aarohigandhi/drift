@@ -62,6 +62,12 @@ Then I checked the obvious suspects directly. I added settings that keep the sco
 
 What I can measure is where the gradient goes short. In attention the worst shrinkage is at the query, key and value projections, and the mildest is at the output, which is the reverse of the MLP, where shrinkage grew with depth. At 4 bits attention is simply harder: it costs 0.36 of held out loss against 0.10 on the MLP, and gradients keep 40% of their length against 71%. Here the attention matmuls do carry part of the blame, since holding both in full precision recovers about a quarter of the gap.
 
-So the honest state is that attention is more fragile under every low precision setting I tried, that one bit of headroom is the difference between a working FP8 run and a dead one, and that the mechanism behind the failure is still open. I would rather publish the open question with the two suspects ruled out than a tidy explanation I cannot support.
+So I looked at the failure itself. It is a runaway rather than one bad step: the loss sits near 2.8 at step 430, reaches 5.2 by 440, and is gone at 446, while the gradient has been decaying for about seventy five steps before that.
+
+Then I probed the dying run with other casts at its own weights, which is the trick that worked earlier. Over its last sixty steps the run keeps 76% of its gradient. The same weights under a cast with one extra bit of headroom keep 89%, so that cast suffers there too. The same weights under ordinary FP8 with one scale factor per tensor keep 102%, which is to say nothing at all goes wrong. Meanwhile the clamp rate sits flat at about 1% through the whole collapse, and slightly falls.
+
+That rules out the story I would have told. Clamping is not the trigger, because it never rises. The failure belongs to block scaling rather than to 8 bit numbers, because per tensor scaling at the very same weights is untouched. And the extra bit of headroom does not work by being immune, since at the bad weights it degrades as well. It works by never arriving there: along its own healthy run the spec cast probes steady, and nothing collapses.
+
+What remains open is narrow and I can state it precisely: block scaling meets some state this model reaches around step 430, and I do not yet know what that state is. I would rather publish that with three suspects eliminated than a tidy explanation I cannot support.
 
 The code, every result and every retraction are at [github.com/aarohigandhi/drift](https://github.com/aarohigandhi/drift).

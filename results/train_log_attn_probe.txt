@@ -1,0 +1,7 @@
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+fp8-mx                   seed 1  DIVERGED  train 9.3582  val 2.4946  cos 0.968231  gain 0.8866  rel 2.346e-01  14s
+fp8-mx                   seed 2  DIVERGED  train 9.3039  val 2.5146  cos 0.969437  gain 0.8944  rel 2.228e-01  14s
+fp8-mx                   seed 3  DIVERGED  train 11.8516  val 2.5307  cos 0.972388  gain 0.8959  rel 2.088e-01  15s
+fp8-mx-headroom          seed 2  ok        train 2.3515  val 2.3307  cos 0.993077  gain 0.9905  rel 1.171e-01  21s
+fp8-mx-headroom          seed 1  ok        train 2.6404  val 2.3382  cos 0.992071  gain 0.9918  rel 1.238e-01  21s
+fp8-mx-headroom          seed 3  ok        train 2.2102  val 2.3372  cos 0.994303  gain 0.9939  rel 1.065e-01  21s

@@ -253,11 +253,33 @@ recovers about a quarter of the loss gap, +0.262, and lifts the gain to 0.447.
 Two policies that survived on the MLP diverge here: `mxfp4-headroom` at step 79
 and backward stochastic rounding at step 161.
 
-The honest summary is that attention is more fragile under every low precision
-setting tried, that one bit of MX headroom is what keeps FP8 alive, and that the
-mechanism behind the FP8 divergence is not yet isolated. It is not the clamp rate
-of the scores or the probabilities, because holding either in full precision
-changes nothing.
+#### What the divergence actually looks like
+
+It is a runaway, not a single bad step. Loss sits near 2.8 through step 430, hits
+5.2 at 440 and is gone by 446. The gradient degrades first: gain falls from 1.04 at
+step 350 to 0.54 by 425.
+
+Probing the diverging run with other casts, at its own weights, narrows it further.
+Averaged over 3 seeds, early steps against the last 60 before divergence:
+
+| gradient gain at the diverging run's weights | steps ≤ 200 | last 60 steps |
+|---|---:|---:|
+| the run's own cast, MX with the spec exponent | 0.917 | 0.762 |
+| MX with one bit of headroom | 0.998 | 0.886 |
+| FP8 with per-tensor scaling, no MX | 0.997 | 1.015 |
+| activations clamped | 0.9% | 0.8% |
+
+Three things follow. **Clamping is not the trigger**: the clamp rate is flat, and
+slightly lower, while the gradient collapses. **It is block scaling, not FP8**: at
+those same weights, per-tensor FP8 is untouched at 1.015, while both MX variants
+lose a fifth or more. **Headroom works by never arriving there**: along its own
+healthy run the spec cast probes at a steady 0.918 to 0.926 and nothing collapses,
+so the headroom cast's benefit is the trajectory it takes, not immunity at a given
+point. Probed at the bad weights it degrades too, to 0.886.
+
+So the mechanism is narrowed to MX block scaling meeting whatever state this model
+reaches around step 430, and it is not the clamp rate, not the attention operands,
+and not FP8 as such. What it is specifically remains open.
 
 ### Where the stochastic rounding damage comes from
 
