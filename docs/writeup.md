@@ -48,6 +48,20 @@ The format is rarely the whole story. The things that actually moved training he
 
 The limits are real. The models are small, the largest has 148k parameters, and everything runs on a CPU.
 
-The models so far have no attention, and I want to be clear that nothing here says anything about it. Attention brings arithmetic the models I built simply do not contain. A matrix multiply of a query against a key multiplies two activations together, where every product measured here multiplied an activation by a weight. A softmax then turns those scores into weights that sum to one, which makes it sensitive to small errors in a way a plain layer is not, and its outputs sit just under 1.0, the same place that made the scaling rule bite. So attention is the next piece of work rather than a loose end. It is scheduled, the measurements are the ones already built, and I will report what it says even if it disagrees with everything above.
+## Attention, and a prediction I got wrong
+
+Everything above ran on models with no attention, so I built one: a single block of causal attention followed by an MLP, with the same measurements pointed at it. Two of its matmuls have no equivalent in the earlier models. A score is a query against a key, and a context is softmax probabilities against values, so in both cases two activations multiply and cast error arrives on both sides.
+
+My prediction was specific. Softmax probabilities sit just under 1.0, the same place tanh outputs sit, so I expected them to clamp hard under the MX rule and to explain whatever went wrong. That was wrong twice over.
+
+It was wrong about the clamping. Under MX scaled FP8, about 1.9% of attention probabilities clamp, against 27 to 30% of the tanh activations in the MLP. A tenth as much.
+
+It was wrong about the cause. The same MX scaled FP8 that trained fine on the MLP now blows up on every seed, at steps 446, 453 and 497. So a tenth of the clamping, and the run dies rather than surviving. One extra bit of exponent headroom still rescues it, which keeps the scaling rule firmly in the story, but the story is not the one I wrote down in advance.
+
+Then I checked the obvious suspects directly. I added settings that keep the score matmul, or the probability matmul, in full precision while every ordinary layer stays cast. Both variants diverge too, at steps 439 to 484, which is indistinguishable from leaving them cast. Whatever kills attention under MX scaled FP8, it is not the casting of the attention operands. I do not know yet what it is, and the repository says so.
+
+What I can measure is where the gradient goes short. In attention the worst shrinkage is at the query, key and value projections, and the mildest is at the output, which is the reverse of the MLP, where shrinkage grew with depth. At 4 bits attention is simply harder: it costs 0.36 of held out loss against 0.10 on the MLP, and gradients keep 40% of their length against 71%. Here the attention matmuls do carry part of the blame, since holding both in full precision recovers about a quarter of the gap.
+
+So the honest state is that attention is more fragile under every low precision setting I tried, that one bit of headroom is the difference between a working FP8 run and a dead one, and that the mechanism behind the failure is still open. I would rather publish the open question with the two suspects ruled out than a tidy explanation I cannot support.
 
 The code, every result and every retraction are at [github.com/aarohigandhi/drift](https://github.com/aarohigandhi/drift).
