@@ -394,6 +394,11 @@ def main():
     if (RESULTS / "runs-attn").exists():
         training(attn, RESULTS / "runs-attn", "attn_table.md", attn, "attn_layers.md", gain_figure=False)
         clamp_table(RESULTS / "runs-attn", attn, "attn_clamp.md")
+        gain_plot(load_runs(RESULTS / "runs-attn"),
+                  picks=("fp8", "fp8-mx-headroom", "fp8-mx", "mxfp4"),
+                  filename="attn_gain.png",
+                  title="Attention: MX FP8 collapses where per-tensor FP8 does not",
+                  nudge={"fp8": 7, "fp8-mx-headroom": -7})
     wide = ["fp32", "acc-fp16", "acc-fp16-pairwise", "acc-bf16", "acc-bf16-pairwise", "acc-bf16-blocked"]
     if (RESULTS / "runs-wide").exists():
         training(wide, RESULTS / "runs-wide", "wide_table.md", wide, "wide_layers.md", gain_figure=False)

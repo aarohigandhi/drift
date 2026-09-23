@@ -161,10 +161,17 @@ public final class Trainer {
                             "{\"kind\":\"measure\",\"step\":%d,\"loss\":%s,\"loss_exact\":%s,"
                                     + "\"cos\":%s,\"gain\":%s,\"rel\":%s,\"layers\":{%s},"
                                     + "\"clamp_x\":%s,\"clamp_w\":%s,\"clamp_g\":%s,"
-                                    + "\"clamp_prob\":%s,\"probes\":{%s}}%n",
+                                    + "\"clamp_prob\":%s,\"underflow\":%s,\"spread_binades\":%s,"
+                                    + "\"cast_rel_err\":%s,\"block_spread\":%s,\"cast_bias\":%s,"
+                                    + "\"probes\":{%s}}%n",
                             step, json(loss), json(lossExact), json(all[0]), json(all[1]), json(all[2]),
                             layers, json(frac(cc[0], cc[1])), json(frac(cc[2], cc[3])), json(frac(cc[4], cc[5])),
-                            json(cc.length > 6 ? frac(cc[6], cc[7]) : 0.0), probeJson));
+                            json(cc.length > 6 ? frac(cc[6], cc[7]) : 0.0),
+                            json(cc.length > 8 ? frac(cc[8], cc[9]) : 0.0),
+                            json(cc.length > 10 ? (double) cc[10] : 0.0),
+                            json(cc.length > 12 ? Double.longBitsToDouble(cc[12]) : 0.0),
+                            json(cc.length > 13 ? Double.longBitsToDouble(cc[13]) : 0.0),
+                            json(cc.length > 14 ? Double.longBitsToDouble(cc[14]) : 0.0), probeJson));
                 }
 
                 adam(params, grads, m, v, step, policy.masterFp32);

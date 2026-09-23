@@ -68,6 +68,14 @@ Then I probed the dying run with other casts at its own weights, which is the tr
 
 That rules out the story I would have told. Clamping is not the trigger, because it never rises. The failure belongs to block scaling rather than to 8 bit numbers, because per tensor scaling at the very same weights is untouched. And the extra bit of headroom does not work by being immune, since at the bad weights it degrades as well. It works by never arriving there: along its own healthy run the spec cast probes steady, and nothing collapses.
 
-What remains open is narrow and I can state it precisely: block scaling meets some state this model reaches around step 430, and I do not yet know what that state is. I would rather publish that with three suspects eliminated than a tidy explanation I cannot support.
+So I kept measuring instead of guessing. Underflow, meaning values that fall to zero because a block scale was set by something much larger, stays near nothing. The relative error of the cast itself is flat. The spread of values inside one scaling block barely moves. None of them tracks a gradient falling from 0.92 to 0.76.
+
+What does track it is the bias of the cast. Not how large the error is, but which way it points. I measured the projection of the cast error back onto the tensor it came from: zero would mean the error is sideways noise, and negative means the cast quietly shrinks whatever it touches, which is what clipping the biggest element of every block would do.
+
+Lined up across four settings, bias predicts the gradient and error size does not. Ordinary FP8 with one scale per tensor has the largest cast error of anything I ran, and it keeps essentially all of its gradient. MX scaled FP8 has a smaller error and loses a quarter. One extra bit of exponent headroom uses the very same block scaling, clips nothing, removes about fourteen fifteenths of the bias, and with it all of the damage. Four bit MX has the most bias of all and keeps only 41% of its gradient.
+
+That is a satisfying shape for an answer. A one way error shrinks a gradient. An error thirty times bigger that points in no particular direction does not.
+
+One piece is still open and I want to name it exactly. Between settings, bias predicts the gradient. Within the dying run it does not: the bias is flat while the gradient collapses and the run blows up. So the bias explains why MX scaled FP8 is worse everywhere, and not what tips this particular run over at step 430. No quantity I measured moves when it does. That one stays in the repository as an open question rather than a story.
 
 The code, every result and every retraction are at [github.com/aarohigandhi/drift](https://github.com/aarohigandhi/drift).

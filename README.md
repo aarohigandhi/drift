@@ -277,9 +277,45 @@ healthy run the spec cast probes at a steady 0.918 to 0.926 and nothing collapse
 so the headroom cast's benefit is the trajectory it takes, not immunity at a given
 point. Probed at the bad weights it degrades too, to 0.886.
 
-So the mechanism is narrowed to MX block scaling meeting whatever state this model
-reaches around step 430, and it is not the clamp rate, not the attention operands,
-and not FP8 as such. What it is specifically remains open.
+#### It is the bias of the cast, not its size
+
+Three more candidates, all measured per cast and all flat through the collapse:
+underflow (0.00% early, 0.21% late), the cast's own relative error (0.0324 against
+0.0319) and the spread of values inside a scaling block (6.4 against 7.2 binades).
+None of them explains a gradient falling from 0.92 to 0.76.
+
+What does line up is the **bias** of the cast, the projection of the cast error
+onto the tensor it came from. Zero means the error is sideways noise. Negative
+means the cast is systematically shrinking the tensor, which is exactly what
+clamping the largest element of every block does.
+
+![Attention gradient gain by policy](docs/img/attn_gain.png)
+
+| policy | cast bias | cast rel. error | activations clamped | grad gain, early | grad gain, late |
+|---|---:|---:|---:|---:|---:|
+| `fp8` | -0.00083 | 0.0348 | 0.0% | 0.994 | 0.989 |
+| `fp8-mx-headroom` | -0.00048 | 0.0259 | 0.0% | 0.993 | 0.995 |
+| `fp8-mx` | -0.00663 | 0.0324 | 0.9% | 0.917 | 0.762 |
+| `mxfp4` | -0.02975 | 0.1182 | 2.8% | 0.550 | 0.409 |
+
+Read the first two columns against the last. `fp8` with per-tensor scaling has the
+**largest** cast error of any policy here, 0.0348, and it keeps its gradient
+(0.994). `fp8-mx` has a smaller error and loses a quarter of its gradient. The
+ordering follows bias, not error size, across all four policies. And bias comes
+from clamping: `fp8-mx-headroom` uses the same block scaling and clamps nothing,
+which removes about 13/14 of the bias and all of the damage.
+
+So the shape of the answer is: block scaling with the spec exponent clamps the
+largest element of each block, that clamp is a small one-way error rather than
+noise, and a one-way error is what shrinks a gradient. An error thirty times
+larger in magnitude but unbiased does nothing.
+
+**One piece is still open, and it is worth being precise about which.** Between
+policies, bias predicts gain. Within the diverging run it does not: bias is flat
+(0.0066 against 0.0058) while gain collapses from 0.917 to 0.762 and the run dies.
+So a constant bias explains why MX FP8 is worse than per-tensor FP8 at every point,
+but not what tips this particular run over around step 430. No cast statistic
+measured here changes when it does.
 
 ### Where the stochastic rounding damage comes from
 

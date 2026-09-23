@@ -94,6 +94,33 @@ public final class AttnPass implements ModelPass {
     /** Attention probabilities specifically, since they are the operand under suspicion. */
     public long clampedProb;
     public long castProb;
+    /**
+     * Elements that were not zero and became zero. A block scale is set by the block
+     * maximum, so an element far below it can fall under the smallest subnormal and
+     * vanish. Clamping loses the top of a block; this loses the bottom.
+     */
+    public long underflowed;
+    /** Sum over casts of the ratio of block maximum to smallest non-zero magnitude. */
+    public double spreadSum;
+    public long spreadCount;
+    /**
+     * How much the cast itself moves a tensor, as a relative error, and how unequal
+     * the values are inside a single scaling block. Block scaling gives every block
+     * its own scale, so what matters to it is the spread within a block, not the
+     * spread of the whole tensor.
+     */
+    public double castErrSum;
+    public long castErrCount;
+    public double blockSpreadSum;
+    public long blockSpreadCount;
+    /**
+     * Projection of the cast error onto the tensor it came from, as a fraction. Zero
+     * means the error is sideways noise; a negative value means the cast is
+     * systematically shrinking the tensor, which is what clamping the largest element
+     * of every block would do.
+     */
+    public double castBiasSum;
+    public long castBiasCount;
 
     public AttnPass(NumericPolicy p, AttnNet net, int batch, long rngSeed) {
         this.p = p;
@@ -163,7 +190,12 @@ public final class AttnPass implements ModelPass {
 
     @Override
     public long[] clampCounts() {
-        return new long[]{clampedX, castX, clampedW, castW, clampedG, castG, clampedProb, castProb};
+        return new long[]{clampedX, castX, clampedW, castW, clampedG, castG, clampedProb, castProb,
+                underflowed, castX + castW + castG,
+                (long) (spreadCount == 0 ? 0 : spreadSum / spreadCount), spreadCount,
+                Double.doubleToRawLongBits(castErrCount == 0 ? 0 : castErrSum / castErrCount),
+                Double.doubleToRawLongBits(blockSpreadCount == 0 ? 0 : blockSpreadSum / blockSpreadCount),
+                Double.doubleToRawLongBits(castBiasCount == 0 ? 0 : castBiasSum / castBiasCount)};
     }
 
     /**
@@ -508,6 +540,75 @@ public final class AttnPass implements ModelPass {
         if (f != null && p.scaling == Scaling.PER_TENSOR) {
             scale = Quant.perTensorScale(f, Quant.amax(src, 0, n));
         }
-        return Quant.quantize(src, 0, dst, 0, n, f, p, rm, scale, rng);
+        int clamped = Quant.quantize(src, 0, dst, 0, n, f, p, rm, scale, rng);
+        if (f != null) {
+            countUnderflow(src, dst, n);
+        }
+        return clamped;
+    }
+
+    /**
+     * How much of a tensor the cast destroyed at the bottom, and how wide the values
+     * were to begin with. Both are the counterpart of the clamp rate, which only sees
+     * the top of a block.
+     */
+    private void countUnderflow(double[] src, double[] dst, int n) {
+        double max = 0.0;
+        double minNonZero = Double.MAX_VALUE;
+        for (int i = 0; i < n; i++) {
+            double a = Math.abs(src[i]);
+            if (src[i] != 0.0 && dst[i] == 0.0) {
+                underflowed++;
+            }
+            if (a > max) {
+                max = a;
+            }
+            if (a != 0.0 && a < minNonZero) {
+                minNonZero = a;
+            }
+        }
+        if (max > 0.0 && minNonZero < Double.MAX_VALUE) {
+            spreadSum += Math.log(max / minNonZero) / Math.log(2.0);   // binades of spread
+            spreadCount++;
+        }
+
+        double num = 0.0;
+        double den = 0.0;
+        for (int i = 0; i < n; i++) {
+            double e = dst[i] - src[i];
+            num += e * e;
+            den += src[i] * src[i];
+        }
+        double proj = 0.0;
+        for (int i = 0; i < n; i++) {
+            proj += (dst[i] - src[i]) * src[i];
+        }
+        if (den > 0.0) {
+            castErrSum += Math.sqrt(num / den);
+            castErrCount++;
+            castBiasSum += proj / den;
+            castBiasCount++;
+        }
+
+        // Spread inside each scaling block, which is what a block scale actually sees.
+        int block = p.scaleBlock;
+        for (int start = 0; start < n; start += block) {
+            int len = Math.min(block, n - start);
+            double bmax = 0.0;
+            double bmin = Double.MAX_VALUE;
+            for (int i = start; i < start + len; i++) {
+                double a = Math.abs(src[i]);
+                if (a > bmax) {
+                    bmax = a;
+                }
+                if (a != 0.0 && a < bmin) {
+                    bmin = a;
+                }
+            }
+            if (bmax > 0.0 && bmin < Double.MAX_VALUE) {
+                blockSpreadSum += Math.log(bmax / bmin) / Math.log(2.0);
+                blockSpreadCount++;
+            }
+        }
     }
 }
