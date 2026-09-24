@@ -17,6 +17,8 @@ on real text under each setting, and at every measurement step it recomputes the
 gradient exactly, so a difference between runs can be traced to the one setting that changed.
 
 The story of the project, and what it found, is in [docs/writeup.md](docs/writeup.md).
+What is already known in the literature, and what is only a reproduction of it, is in
+[docs/related_work.md](docs/related_work.md).
 
 ## Results
 
@@ -77,6 +79,13 @@ cost of one bit of resolution.
 |---|---:|---:|---:|---:|
 | e4m3 | **3.61e-02** | 4.80e-02 | 3.82e-02 | 57.3 |
 | e2m1 | 4.08e-01 | **1.97e-01** | 2.92e-01 | 143.2 |
+
+This is a known failure mode, and the fix is published: NVIDIA's
+[MXFP8 pre-training recipe](https://arxiv.org/abs/2506.08027) recommends against the
+specification's floor-based scale and rounds the shared scale up instead, so that
+nothing saturates. Adding one to the exponent here is the same fix. The results
+below are an independent reproduction of it, with the mechanism measured, plus a
+four bit case that runs the other way.
 
 With 8-bit elements the extra bit costs almost nothing, so clamping is pure loss.
 With 4-bit elements resolution is scarce, and on a single dot product clamping is
@@ -208,6 +217,12 @@ Both multiply two activations, so cast error enters on both sides.
 | `mxfp4-headroom` | 3/3 | — | — | 0.6752 | 0.606 | 0.673 |
 | `mxfp4-sr-bwd` | 3/3 | — | — | 0.7412 | 0.431 | 0.667 |
 
+That attention is where low precision training breaks is itself known; see
+[*Why Low-Precision Transformer Training Fails*](https://arxiv.org/abs/2510.04212),
+which attributes it to the query against key product amplifying quantization noise
+and the softmax magnifying it. What follows is that effect measured against a
+matched MLP with the same instruments.
+
 `fp8-mx` trained on the MLP, 0.018 above fp32 with gradients 10% short. On
 attention the same policy **diverges on every seed**, at steps 446, 453 and 497.
 One bit of exponent headroom still fixes it: `fp8-mx-headroom` trains to +0.003.
@@ -309,6 +324,13 @@ So the shape of the answer is: block scaling with the spec exponent clamps the
 largest element of each block, that clamp is a small one-way error rather than
 noise, and a one-way error is what shrinks a gradient. An error thirty times
 larger in magnitude but unbiased does nothing.
+
+This agrees with existing work rather than contradicting it. Quantization bias
+mattering more than variance is reported in *Rethinking the Importance of
+Quantization Bias* (IEEE TIP, 2022), and quantization as magnitude shrinkage acting
+like a reduced step size in [this 2025 analysis](https://arxiv.org/abs/2508.07142).
+The contribution here is the measurement: bias and error magnitude separated per
+cast, on four policies, with the gradient measured against an exact one.
 
 **One piece is still open, and it is worth being precise about which.** Between
 policies, bias predicts gain. Within the diverging run it does not: bias is flat

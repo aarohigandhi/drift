@@ -78,4 +78,33 @@ That is a satisfying shape for an answer. A one way error shrinks a gradient. An
 
 One piece is still open and I want to name it exactly. Between settings, bias predicts the gradient. Within the dying run it does not: the bias is flat while the gradient collapses and the run blows up. So the bias explains why MX scaled FP8 is worse everywhere, and not what tips this particular run over at step 430. No quantity I measured moves when it does. That one stays in the repository as an open question rather than a story.
 
+## What of this was already known
+
+I checked the literature after the fact, which is the wrong order, and it cost me the
+headline. The scaling fix is published. NVIDIA's recipe for pre training with MXFP8,
+from June 2025, says not to use the floor based scale from the specification, because
+scaled values then overflow the format, and says to round the shared scale up instead.
+Adding one to the exponent, which is what I did, is that same fix arrived at from the
+other side. So the strongest result in this project is a reproduction.
+
+The bias result has precedent too. Work from 2022 reports that the bias of quantization
+noise, rather than its variance, is what costs accuracy, and a 2025 analysis treats
+quantization as magnitude shrinkage that behaves like a smaller step size. That is the
+same shape as what I measured. And attention being the fragile part of a low precision
+run is itself an active topic, with a 2025 paper attributing it to the query against key
+product amplifying noise and the softmax magnifying it.
+
+So what is left that is mine. The measurements, which are careful and which nobody owed
+me: clamp rates, gradient gain against an exact gradient, and bias separated from error
+magnitude across four settings. The probes, which compute what a different arithmetic
+would have done at a run's own weights, and which is how I separated a biased cast from
+a bad trajectory. The exhaustive oracle across every code and every pair of codes. And
+one case that runs against the published recipe: at four bits, rounding the scale up
+made every run diverge here, where the specification's scale trained.
+
+I would rather say that clearly than let a reader assume I found something first. The
+work is an independent reproduction with the mechanism measured and a method for
+attribution, and [docs/related_work.md](https://github.com/aarohigandhi/drift/blob/main/docs/related_work.md)
+in the repository lays out line by line which is which.
+
 The code, every result and every retraction are at [github.com/aarohigandhi/drift](https://github.com/aarohigandhi/drift).
