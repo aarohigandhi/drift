@@ -365,17 +365,27 @@ tanh activations, while coming out smaller than the simulator said. Different
 initialisation and a shorter warm up on the GPU side, so exact agreement was never
 expected there.
 
-**The divergence did not reproduce, and the likely reason is a known difference
-between the two.** The notebook casts only the operands of the forward matmuls and
-lets autograd run the backward pass in full precision. The simulator casts the
-backward operands too, which is what an FP8 backward matmul actually does. Since the
-stochastic rounding split found that *all* of the damage lived in the backward
-casts, the obvious reading is that this divergence needs them as well.
+**The divergence did not reproduce**, on 3 seeds out of 3, under either of the two
+regimes that have been run on hardware so far: casting the forward operands only, and
+additionally casting the gradient as it flows through each cast point.
 
-That is a hypothesis, not a result. The notebook now runs both ways, forward casts
-only and forward plus backward, so the next run settles it. Until then the honest
-statement is: the clamping is confirmed on hardware, and the divergence is confirmed
-only in simulation, with a named and testable reason for the gap.
+Neither of those is yet equivalent to the simulator, and the gap is specific.
+`torch.nn.functional.linear` computes its backward as an **uncast** gradient times
+the weight, and casting the result afterwards is not the same as casting the operand
+first. A real FP8 backward matmul casts both of its operands, and so does the
+simulator, so both hardware regimes run so far are gentler than the claim.
+
+The notebook now replaces those layers with custom autograd Functions that cast both
+operands of every matmul, forward and backward. Until that has been run, the honest
+statement is:
+
+- **the clamp rates are confirmed on hardware**, and
+- **the divergence is confirmed only in simulation**, with two hardware regimes
+  failing to reproduce it and a precise, testable reason why neither was equivalent.
+
+If the faithful version also trains, the divergence is a property of this
+repository's implementation rather than of FP8 with the specification exponent, and
+this section will say that instead.
 
 ### Where the stochastic rounding damage comes from
 
