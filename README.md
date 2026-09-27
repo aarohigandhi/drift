@@ -347,6 +347,36 @@ So a constant bias explains why MX FP8 is worse than per-tensor FP8 at every poi
 but not what tips this particular run over around step 430. No cast statistic
 measured here changes when it does.
 
+### On a real GPU
+
+The arithmetic above is simulated. [`gpu/mx_gpu_check.ipynb`](gpu/mx_gpu_check.ipynb)
+runs the same measurements against real `torch.float8_e4m3fn` casts. Result from a
+T4, torch 2.11:
+
+| claim | simulator | GPU |
+|---|---:|---:|
+| tanh activations clamped by the spec exponent | 27–30% | **31.7%** |
+| attention probabilities clamped | 1.9% | **0.5%** |
+| FP8 attention training diverges | 3/3 seeds | **0/3, trains fine** |
+
+The clamp rates hold. The first is within a few points, and the second keeps the
+shape of the claim, that the probabilities clamp an order of magnitude less than
+tanh activations, while coming out smaller than the simulator said. Different
+initialisation and a shorter warm up on the GPU side, so exact agreement was never
+expected there.
+
+**The divergence did not reproduce, and the likely reason is a known difference
+between the two.** The notebook casts only the operands of the forward matmuls and
+lets autograd run the backward pass in full precision. The simulator casts the
+backward operands too, which is what an FP8 backward matmul actually does. Since the
+stochastic rounding split found that *all* of the damage lived in the backward
+casts, the obvious reading is that this divergence needs them as well.
+
+That is a hypothesis, not a result. The notebook now runs both ways, forward casts
+only and forward plus backward, so the next run settles it. Until then the honest
+statement is: the clamping is confirmed on hardware, and the divergence is confirmed
+only in simulation, with a named and testable reason for the gap.
+
 ### Where the stochastic rounding damage comes from
 
 `mxfp4-sr` rounds both the forward casts (weights and activations) and the

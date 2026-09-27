@@ -78,6 +78,24 @@ That is a satisfying shape for an answer. A one way error shrinks a gradient. An
 
 One piece is still open and I want to name it exactly. Between settings, bias predicts the gradient. Within the dying run it does not: the bias is flat while the gradient collapses and the run blows up. So the bias explains why MX scaled FP8 is worse everywhere, and not what tips this particular run over at step 430. No quantity I measured moves when it does. That one stays in the repository as an open question rather than a story.
 
+## Checking it on hardware
+
+All of that is simulated, so I wrote a notebook that runs the same measurements against
+real FP8 casts on a GPU. The clamping holds up. The specification rule clips 31.7% of
+the tanh activations there against 27 to 30% in my simulator, and the attention
+probabilities clip far less, 0.5% against 1.9%, which keeps the shape of the claim.
+
+The divergence did not reproduce, and I think I know why. The notebook casts only the
+inputs of the forward matmuls and lets the backward pass run in full precision. My
+simulator casts the backward operands too, which is what a real low precision backward
+matmul does. Given that the stochastic rounding split had already shown every bit of
+the damage living in the backward casts, the natural reading is that this failure needs
+them too. So the notebook now runs both ways and the next run will settle it.
+
+Until then the honest line is that the clipping is confirmed on hardware and the
+divergence is confirmed only in simulation, with a named reason for the gap and a test
+that will decide it.
+
 ## What of this was already known
 
 I checked the literature after the fact, which is the wrong order, and it cost me the
