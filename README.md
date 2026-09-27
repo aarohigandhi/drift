@@ -355,37 +355,36 @@ T4, torch 2.11:
 
 | claim | simulator | GPU |
 |---|---:|---:|
-| tanh activations clamped by the spec exponent | 27–30% | **31.7%** |
-| attention probabilities clamped | 1.9% | **0.5%** |
-| FP8 attention training diverges | 3/3 seeds | **0/3, trains fine** |
+| tanh activations clamped by the spec exponent | 27–30% | 31.7% |
+| attention probabilities clamped | 1.9% | 0.5% |
+| FP8 attention diverges, spec exponent | steps 446, 453, 497 | **steps 452, 494, 553** |
+| the same with one bit of headroom | trains 3/3 | **trains 3/3** |
 
-The clamp rates hold. The first is within a few points, and the second keeps the
-shape of the claim, that the probabilities clamp an order of magnitude less than
-tanh activations, while coming out smaller than the simulator said. Different
-initialisation and a shorter warm up on the GPU side, so exact agreement was never
-expected there.
+**All three claims hold on hardware.** The clamp rates agree closely for tanh, and
+for the probabilities the GPU reports a smaller number that keeps the shape of the
+claim, an order of magnitude below the tanh rate. The divergence reproduces, on
+three seeds out of three, in the same band of steps as the simulator, and one bit of
+exponent headroom rescues it there exactly as it does here.
 
-**The divergence did not reproduce**, on 3 seeds out of 3, under either of the two
-regimes that have been run on hardware so far: casting the forward operands only, and
-additionally casting the gradient as it flows through each cast point.
+It took two failed attempts to get that test right, and the failures are the
+interesting part:
 
-Neither of those is yet equivalent to the simulator, and the gap is specific.
-`torch.nn.functional.linear` computes its backward as an **uncast** gradient times
-the weight, and casting the result afterwards is not the same as casting the operand
-first. A real FP8 backward matmul casts both of its operands, and so does the
-simulator, so both hardware regimes run so far are gentler than the claim.
+| what the GPU cast | spec exponent |
+|---|---|
+| forward operands only, gradient untouched | trains 3/3 |
+| forward operands, gradient cast after each matmul | trains 3/3 |
+| **both operands of every matmul, forward and backward** | **diverges 3/3** |
 
-The notebook now replaces those layers with custom autograd Functions that cast both
-operands of every matmul, forward and backward. Until that has been run, the honest
-statement is:
+The first two are what you get from `torch.nn.functional.linear`, whose backward
+multiplies an *uncast* gradient by the weight. Casting the result afterwards is not
+the same as casting the operand first, and the difference is the whole effect. So
+the divergence is not a property of FP8 with the spec exponent in general. It is a
+property of the backward matmuls specifically, and it appears only when both of
+their operands are cast, which is what real FP8 training does and what the simulator
+did all along.
 
-- **the clamp rates are confirmed on hardware**, and
-- **the divergence is confirmed only in simulation**, with two hardware regimes
-  failing to reproduce it and a precise, testable reason why neither was equivalent.
-
-If the faithful version also trains, the divergence is a property of this
-repository's implementation rather than of FP8 with the specification exponent, and
-this section will say that instead.
+That lines up with the stochastic rounding split further down, which found all of
+its damage in the backward casts too.
 
 ### Where the stochastic rounding damage comes from
 

@@ -85,22 +85,31 @@ real FP8 casts on a GPU. The clamping holds up. The specification rule clips 31.
 the tanh activations there against 27 to 30% in my simulator, and the attention
 probabilities clip far less, 0.5% against 1.9%, which keeps the shape of the claim.
 
-The divergence did not reproduce, on three seeds out of three, and then it did not
-reproduce a second time when I added casting of the gradient as well. Which sent me
-back to read my own test rather than my results.
+The divergence took three tries to test properly, and that story is worth telling.
 
-The gap turned out to be specific. The standard linear layer in PyTorch computes its
-backward as an uncast gradient times the weight, and casting that result afterwards is
-not the same thing as casting the operand before the multiply. A real low precision
-backward casts both operands, and so does my simulator, so both of the hardware runs
-were gentler than the thing I was claiming. The notebook now has custom layers that
-cast both operands of every matmul in both directions, and that version has not been
-run yet.
+The divergence did not reproduce. Three seeds, all fine. I added casting of the
+gradient as well and it still did not reproduce. At that point the likeliest
+explanation was that my simulator had a bug and the result was mine rather than the
+format's, so I went back to read my own test rather than my results.
 
-So the honest line is that the clipping is confirmed on hardware, and the divergence is
-confirmed only in simulation, with two hardware attempts that failed to reproduce it
-and a precise reason why neither was a fair test. If the fair test also trains, then the
-divergence belongs to my implementation rather than to the format, and I will say so.
+The test was wrong. The standard linear layer in PyTorch computes its backward as an
+uncast gradient times the weight, and casting that result afterwards is not the same
+thing as casting the operand before the multiply. A real low precision backward casts
+both operands. My simulator did. Both of my hardware runs were quietly gentler than the
+claim they were supposed to be testing. So I wrote custom layers that cast both operands
+of every matmul in both directions, and ran it again.
+
+It diverged, on all three seeds, at steps 452, 494 and 553. My simulator had said 446,
+453 and 497. One extra bit of exponent headroom rescued it there too, three out of
+three, exactly as it does in simulation.
+
+The failed attempts turned out to be the useful part. Casting only the forward operands
+never diverges. Casting the gradient after each matmul never diverges. Casting both
+operands of the backward matmuls diverges every time. So this is not a fact about eight
+bit numbers in general, it is a fact about the backward matmuls specifically, and it
+shows up only when both of their operands are cast, which is what real training does.
+That also matches the stochastic rounding result from earlier, which had put all of its
+damage in the backward casts.
 
 ## What of this was already known
 
