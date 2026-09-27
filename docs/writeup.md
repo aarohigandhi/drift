@@ -94,13 +94,26 @@ same shape as what I measured. And attention being the fragile part of a low pre
 run is itself an active topic, with a 2025 paper attributing it to the query against key
 product amplifying noise and the softmax magnifying it.
 
+I thought I had one case that ran against the published recipe. At four bits, rounding
+the scale up made every run diverge, eight seeds out of eight, where the specification
+scale trained on eight out of eight. That felt like mine for about an hour. Then a
+longer search turned up a 2025 paper from Meta and UMass that compares floor, ceil and
+nearest scale rounding directly, reports floor overflowing at four bits and ceil
+worsening underflow, and proposes rounding to nearest as the middle path. The trade is
+theirs, on real models, at a scale I cannot reach.
+
+What my measurement adds there is small but real. Raising the scale removes clipping
+completely, cuts the bias of the cast more than fourfold, and gives a better gradient at
+every step, 0.64 of the true length against 0.39. Then it dies anyway, every time. So at
+four bits the per step diagnostics point at the wrong scale, and what kills the run is
+the thing the paper names, underflow, which rose from 14% to 18% of elements.
+
 So what is left that is mine. The measurements, which are careful and which nobody owed
-me: clamp rates, gradient gain against an exact gradient, and bias separated from error
-magnitude across four settings. The probes, which compute what a different arithmetic
-would have done at a run's own weights, and which is how I separated a biased cast from
-a bad trajectory. The exhaustive oracle across every code and every pair of codes. And
-one case that runs against the published recipe: at four bits, rounding the scale up
-made every run diverge here, where the specification's scale trained.
+me: clamp rates, underflow rates, gradient gain against an exact gradient, and bias
+separated from error magnitude across four settings. The probes, which compute what a
+different arithmetic would have done at a run's own weights, and which is how I
+separated a biased cast from a bad trajectory. And the exhaustive oracle across every
+code and every pair of codes.
 
 I would rather say that clearly than let a reader assume I found something first. The
 work is an independent reproduction with the mechanism measured and a method for
