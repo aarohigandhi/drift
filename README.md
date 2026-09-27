@@ -16,7 +16,9 @@ rounding, scaling, accumulator width and summation order. Then it trains a model
 on real text under each setting, and at every measurement step it recomputes the
 gradient exactly, so a difference between runs can be traced to the one setting that changed.
 
-The story of the project, and what it found, is in [docs/writeup.md](docs/writeup.md).
+The story of the project, and what it found, is in [docs/writeup.md](docs/writeup.md),
+with a shorter version at
+[aarohigandhi.vercel.app/writing/drift](https://aarohigandhi.vercel.app/writing/drift/).
 What is already known in the literature, and what is only a reproduction of it, is in
 [docs/related_work.md](docs/related_work.md).
 
