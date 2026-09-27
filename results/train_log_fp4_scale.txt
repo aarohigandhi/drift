@@ -1,0 +1,36 @@
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+mxfp4-headroom           seed 4  DIVERGED  train 9.3162  val 3.7007  cos 0.796233  gain 0.8425  rel 6.449e-01  22s
+mxfp4-headroom           seed 2  DIVERGED  train 9.3642  val 4.1307  cos 0.807154  gain 0.8721  rel 6.387e-01  26s
+mxfp4-headroom           seed 3  DIVERGED  train 10.5448  val 4.2615  cos 0.784100  gain 0.8267  rel 6.666e-01  35s
+mxfp4-headroom           seed 1  DIVERGED  train 9.5654  val 4.6119  cos 0.705396  gain 0.7236  rel 7.557e-01  45s
+mxfp4-headroom           seed 5  DIVERGED  train 9.4055  val 4.4283  cos 0.735229  gain 0.7642  rel 7.270e-01  34s
+mxfp4                    seed 1  ok        train 1.6419  val 2.0393  cos 0.913021  gain 0.7082  rel 4.322e-01  60s
+mxfp4                    seed 5  ok        train 2.2022  val 2.0281  cos 0.907312  gain 0.7100  rel 4.423e-01  61s
+mxfp4                    seed 2  ok        train 2.3413  val 2.0236  cos 0.917804  gain 0.7212  rel 4.215e-01  61s
+mxfp4                    seed 3  ok        train 1.9178  val 2.0698  cos 0.906723  gain 0.7128  rel 4.410e-01  62s
+mxfp4                    seed 4  ok        train 2.3282  val 2.0564  cos 0.907685  gain 0.7204  rel 4.391e-01  62s
+mxfp4-headroom           seed 6  DIVERGED  train 9.4801  val 4.1807  cos 0.815425  gain 0.8572  rel 6.196e-01  34s
+mxfp4                    seed 6  ok        train 1.6107  val 2.0485  cos 0.911262  gain 0.7121  rel 4.342e-01  62s
+mxfp4-headroom           seed 7  DIVERGED  train 10.8323  val 3.9008  cos 0.759872  gain 0.8151  rel 7.070e-01  35s
+mxfp4-headroom           seed 8  DIVERGED  train 9.1545  val 4.4733  cos 0.752605  gain 0.7627  rel 7.012e-01  35s
+mxfp4                    seed 7  ok        train 1.5756  val 2.0100  cos 0.906351  gain 0.7161  rel 4.406e-01  58s
+mxfp4                    seed 8  ok        train 2.0264  val 2.0400  cos 0.909493  gain 0.7168  rel 4.347e-01  52s
+MLP DONE
+corpus: 498,424 train chars, 55,381 held out, vocab 96
+mxfp4-headroom           seed 2  DIVERGED  train 9.5782  val NaN  cos 0.793870  gain 0.7511  rel 5.737e-01  2s
+mxfp4-headroom           seed 4  DIVERGED  train 10.2849  val NaN  cos 0.799872  gain 0.7373  rel 5.137e-01  2s
+mxfp4-headroom           seed 1  DIVERGED  train 10.2175  val NaN  cos 0.538508  gain 0.4833  rel 7.612e-01  2s
+mxfp4-headroom           seed 3  DIVERGED  train 15.2057  val NaN  cos 0.693269  gain 0.5836  rel 6.846e-01  2s
+mxfp4-headroom           seed 5  DIVERGED  train 9.4807  val NaN  cos 0.743727  gain 0.8185  rel 7.044e-01  2s
+mxfp4-headroom           seed 6  DIVERGED  train 11.8130  val NaN  cos 0.625245  gain 0.5465  rel 6.860e-01  3s
+mxfp4-headroom           seed 7  DIVERGED  train 9.5501  val NaN  cos 0.633763  gain 0.6340  rel 7.763e-01  3s
+mxfp4-headroom           seed 8  DIVERGED  train 10.5804  val NaN  cos 0.691784  gain 0.6380  rel 6.483e-01  3s
+mxfp4                    seed 5  ok        train 2.4990  val 2.4731  cos 0.617123  gain 0.4215  rel 7.786e-01  64s
+mxfp4                    seed 6  ok        train 2.8596  val 2.4701  cos 0.615830  gain 0.3712  rel 7.915e-01  63s
+mxfp4                    seed 4  ok        train 2.1578  val 2.4497  cos 0.598914  gain 0.3596  rel 7.953e-01  67s
+mxfp4                    seed 2  ok        train 2.1002  val 2.3876  cos 0.664861  gain 0.4297  rel 7.463e-01  73s
+mxfp4                    seed 1  ok        train 2.5133  val 2.4372  cos 0.607048  gain 0.3947  rel 8.072e-01  73s
+mxfp4                    seed 3  ok        train 2.3031  val 2.6013  cos 0.602705  gain 0.3669  rel 7.875e-01  73s
+mxfp4                    seed 7  ok        train 2.0194  val 2.5395  cos 0.618238  gain 0.3850  rel 7.738e-01  72s
+mxfp4                    seed 8  ok        train 2.5328  val 2.3910  cos 0.628261  gain 0.3835  rel 7.739e-01  71s
+ATTN DONE

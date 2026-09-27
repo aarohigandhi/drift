@@ -131,12 +131,18 @@ is shrinking the step.
 
 What the runs say, largest effect first:
 
-- **FP4 with MX headroom diverges every time**, at steps 797, 1,141 and 1,442.
-  It clamps nothing. The same format with the spec's exponent clamps about 38% of
-  activations and still trains, 0.10 above fp32. It isn't a worse gradient that
-  sinks the headroom cast. Probed at `mxfp4`'s weights, it keeps 96–99% of the
-  gradient with about the same total error as the spec cast. It fails through
-  where it takes training. See the probes below.
+- **FP4 with MX headroom diverges every time**, now on 8 seeds out of 8, at steps
+  699 to 1,442 on this model and 69 to 80 on the attention model. The same format
+  with the spec's exponent trains on 8 of 8. Rounding the shared scale up is the
+  published FP8 fix ([NVIDIA's MXFP8 recipe](https://arxiv.org/abs/2506.08027)), and
+  at four bits it reverses. Measured on the attention model, raising the scale
+  removes clamping (2.59% to 0.00%), raises underflow (14.13% to 17.91%), cuts the
+  bias of the cast more than fourfold and **improves** the per step gradient, gain
+  0.637 against 0.389. It dies anyway. The underflow cost of raising the scale is
+  named in [Yang et al., ARITH 2025](https://ieeexplore.ieee.org/document/11038348/),
+  which proposes rounding the scale to nearest as the middle path. What this adds is
+  that the per step diagnostics point the wrong way: the scale with the better
+  gradient is the one that diverges.
 - **FP8 with the MX spec exponent shrinks every gradient by 10%** (gain 0.900), and
   its held-out loss is the worst of the FP8 runs. The cause is measured: 27–30% of
   activations clamp. tanh outputs sit just below 1.0, so a block maximum like
